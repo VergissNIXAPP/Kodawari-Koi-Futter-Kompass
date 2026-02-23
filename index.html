@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <meta name="theme-color" content="#070707" />
+  <title>Kodawari Koi – Download</title>
+  <style>
+    :root{
+      --bg0:#040404;
+      --bg1:#0a0a0a;
+      --gold1:#f7c35f;
+      --gold2:#ffe29a;
+      --gold3:#d49b2f;
+      --text:rgba(255,255,255,.92);
+      --muted:rgba(255,255,255,.68);
+      --card:rgba(255,255,255,.04);
+      --card2:rgba(255,255,255,.07);
+      --stroke:rgba(255,255,255,.08);
+      --shadow: 0 18px 60px rgba(0,0,0,.55);
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      background:
+        radial-gradient(1200px 700px at 50% -120px, rgba(247,195,95,.18), transparent 65%),
+        radial-gradient(900px 600px at 15% 10%, rgba(255,226,154,.10), transparent 60%),
+        radial-gradient(900px 600px at 85% 20%, rgba(212,155,47,.08), transparent 60%),
+        linear-gradient(180deg, var(--bg1), var(--bg0) 60%);
+      color:var(--text);
+      overflow-x:hidden;
+    }
+
+    /* Background canvases */
+    #bgWaves, #bgParticles{
+      position:fixed;
+      inset:0;
+      width:100%;
+      height:100%;
+      z-index:0;
+      pointer-events:none;
+    }
+    #bgWaves{ filter: blur(.2px) saturate(1.05); opacity:.92; }
+    #bgParticles{ opacity:.95; }
+
+    /* Mouse glow */
+    #mouseGlow{
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      z-index:1;
+      background: radial-gradient(220px 220px at 50% 50%, rgba(255,205,95,.16), rgba(255,205,95,.06) 35%, transparent 70%);
+      mix-blend-mode: screen;
+      opacity:.0;
+      transition: opacity .25s ease;
+      will-change: background;
+    }
+    body:hover #mouseGlow{ opacity:1; }
+
+    /* Subtle film grain */
+    .grain{
+      position:fixed; inset:0;
+      z-index:1;
+      pointer-events:none;
+      opacity:.12;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.35'/%3E%3C/svg%3E");
+      background-size: 220px 220px;
+      mix-blend-mode: overlay;
+    }
+
+    .wrap{
+      position:relative;
+      z-index:2;
+      min-height:100%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding: 56px 18px;
+    }
+
+    .card{
+      width:min(900px, 100%);
+      border:1px solid var(--stroke);
+      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+      border-radius: 28px;
+      box-shadow: var(--shadow);
+      padding: 34px 22px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      overflow:hidden;
+      position:relative;
+    }
+
+    /* premium top highlight */
+    .card:before{
+      content:"";
+      position:absolute;
+      inset:-2px;
+      border-radius:30px;
+      padding:2px;
+      background: linear-gradient(135deg, rgba(247,195,95,.45), rgba(255,226,154,.18), rgba(255,255,255,0), rgba(212,155,47,.18));
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events:none;
+      opacity:.85;
+    }
+
+    .hero{
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap: 18px;
+      text-align:center;
+      padding: 8px 6px 18px;
+    }
+
+    .logo{
+      width:min(560px, 92vw);
+      display:block;
+      filter: drop-shadow(0 0 26px rgba(247,195,95,.30)) drop-shadow(0 0 60px rgba(255,226,154,.10));
+      animation: logoGlow 3.8s ease-in-out infinite alternate;
+      transform: translateZ(0);
+    }
+    @keyframes logoGlow{
+      from{ filter: drop-shadow(0 0 20px rgba(247,195,95,.22)) drop-shadow(0 0 50px rgba(255,226,154,.08)); }
+      to  { filter: drop-shadow(0 0 42px rgba(247,195,95,.55)) drop-shadow(0 0 90px rgba(255,226,154,.16)); }
+    }
+
+    .title{
+      margin: 6px 0 0;
+      font-size: clamp(22px, 3vw, 30px);
+      letter-spacing:.2px;
+      line-height:1.15;
+      background: linear-gradient(90deg, var(--gold1), var(--gold2));
+      -webkit-background-clip:text;
+      -webkit-text-fill-color:transparent;
+    }
+
+    .sub{
+      margin: 0;
+      color: var(--muted);
+      font-size: 15.5px;
+      line-height:1.55;
+      max-width: 58ch;
+    }
+
+    .actions{
+      display:flex;
+      justify-content:center;
+      margin-top: 12px;
+      gap: 12px;
+      flex-wrap:wrap;
+    }
+
+    .btn{
+      position:relative;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap: 10px;
+      padding: 16px 22px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.10);
+      color:#0b0b0b;
+      text-decoration:none;
+      font-weight: 800;
+      letter-spacing:.4px;
+      background: linear-gradient(135deg, var(--gold1), var(--gold2));
+      box-shadow: 0 18px 55px rgba(247,195,95,.20);
+      transform: translateZ(0);
+      transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+      user-select:none;
+      min-width: 240px;
+    }
+    .btn:hover{
+      transform: translateY(-2px) scale(1.02);
+      box-shadow: 0 22px 70px rgba(247,195,95,.34);
+      filter: saturate(1.04);
+    }
+    .btn:active{ transform: translateY(0px) scale(.99); }
+
+    .btn .badge{
+      font-size: 12px;
+      font-weight: 900;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(0,0,0,.14);
+      color: rgba(0,0,0,.82);
+    }
+
+    .hint{
+      margin-top: 16px;
+      padding: 14px 14px;
+      border-radius: 18px;
+      background: rgba(255,255,255,.035);
+      border: 1px solid rgba(255,255,255,.08);
+      color: rgba(255,255,255,.75);
+      font-size: 14px;
+      line-height:1.45;
+      max-width: 70ch;
+      margin-left:auto;
+      margin-right:auto;
+    }
+    .hint b{ color: rgba(255,226,154,.95); }
+
+    .footer{
+      margin-top: 18px;
+      opacity:.55;
+      font-size: 12.5px;
+    }
+
+    .tiny{
+      opacity:.65;
+      font-size: 12px;
+      margin-top: 6px;
+    }
+
+    /* Small screens spacing */
+    @media (max-width:480px){
+      .card{ padding: 28px 16px; border-radius: 24px; }
+      .btn{ min-width: 100%; }
+    }
+
+    /* Reduce motion */
+    @media (prefers-reduced-motion: reduce){
+      #bgWaves, #bgParticles{ display:none; }
+      .logo{ animation:none; }
+      .btn{ transition:none; }
+      #mouseGlow{ display:none; }
+    }
+  
+    /* ---------- Password Gate ---------- */
+    body.locked{
+      overflow:hidden;
+    }
+    body.locked .wrap{
+      filter: blur(10px) saturate(0.9);
+      transform: scale(1.01);
+      opacity: .45;
+      pointer-events:none;
+      user-select:none;
+    }
+    #pwGate{
+      position:fixed;
+      inset:0;
+      z-index:9999;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding: 24px 16px;
+    }
+    #pwGate .panel{
+      width:min(560px, 100%);
+      border-radius: 26px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
+      box-shadow: 0 25px 90px rgba(0,0,0,.65);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      padding: 26px 18px 18px;
+      position:relative;
+      overflow:hidden;
+      text-align:center;
+    }
+    #pwGate .panel:before{
+      content:"";
+      position:absolute;
+      inset:-2px;
+      border-radius:28px;
+      padding:2px;
+      background: linear-gradient(135deg, rgba(247,195,95,.55), rgba(255,226,154,.18), rgba(255,255,255,0), rgba(212,155,47,.18));
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events:none;
+      opacity:.9;
+    }
+    #pwGate .miniLogo{
+      width:min(360px, 86vw);
+      filter: drop-shadow(0 0 22px rgba(247,195,95,.35));
+      margin: 2px auto 10px;
+      display:block;
+    }
+    #pwGate h2{
+      margin: 10px 0 6px;
+      font-size: 18px;
+      letter-spacing:.2px;
+      color: rgba(255,255,255,.92);
+    }
+    #pwGate p{
+      margin: 0 0 14px;
+      color: rgba(255,255,255,.65);
+      font-size: 14px;
+      line-height:1.5;
+    }
+    #pwGate .row{
+      display:flex;
+      gap: 10px;
+      flex-wrap:wrap;
+      justify-content:center;
+      margin-top: 10px;
+    }
+    #pwGate input{
+      flex: 1 1 240px;
+      max-width: 320px;
+      padding: 14px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.35);
+      color: rgba(255,255,255,.92);
+      outline:none;
+      font-size: 16px;
+      text-align:center;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.2);
+    }
+    #pwGate input::placeholder{ color: rgba(255,255,255,.35); }
+    #pwGate button{
+      flex: 0 0 auto;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.10);
+      cursor:pointer;
+      font-weight: 900;
+      letter-spacing:.35px;
+      background: linear-gradient(135deg, var(--gold1), var(--gold2));
+      color: #0b0b0b;
+      box-shadow: 0 18px 55px rgba(247,195,95,.20);
+      transition: transform .18s ease, box-shadow .18s ease;
+      min-width: 130px;
+    }
+    #pwGate button:hover{
+      transform: translateY(-1px);
+      box-shadow: 0 22px 70px rgba(247,195,95,.34);
+    }
+    #pwGate .error{
+      margin-top: 10px;
+      color: rgba(255,107,107,.95);
+      font-size: 13px;
+      min-height: 18px;
+    }
+    #pwGate .tip{
+      margin-top: 10px;
+      font-size: 12px;
+      color: rgba(255,255,255,.52);
+    }
+    #pwGate .shake{
+      animation: shake .35s ease;
+    }
+    @keyframes shake{
+      0%{ transform: translateX(0); }
+      20%{ transform: translateX(-8px); }
+      40%{ transform: translateX(8px); }
+      60%{ transform: translateX(-6px); }
+      80%{ transform: translateX(6px); }
+      100%{ transform: translateX(0); }
+    }
+
+  </style>
+</head>
+<body class="locked">
+
+  <div id="pwGate" aria-label="Passwortschutz">
+    <div class="panel" id="pwPanel">
+      <img src="logo.png" class="miniLogo" alt="Kodawari Koi Logo" />
+      <h2>🔒 Geschützter Download</h2>
+      <p>Bitte Passwort eingeben, um die Seite zu öffnen.</p>
+      <div class="row">
+        <input id="pwInput" type="password" inputmode="text" autocomplete="off" placeholder="Passwort" />
+        <button id="pwBtn" type="button">ÖFFNEN</button>
+      </div>
+      <div class="error" id="pwError"></div>
+      <div class="tip">Tipp: Groß-/Kleinschreibung egal.</div>
+    </div>
+  </div>
+
+  <canvas id="bgWaves"></canvas>
+  <canvas id="bgParticles"></canvas>
+  <div id="mouseGlow"></div>
+  <div class="grain"></div>
+
+  <main class="wrap">
+    <section class="card" aria-label="Kodawari Koi Download">
+      <div class="hero">
+        <img src="logo.png" class="logo" alt="Kodawari Koi Logo" />
+        <h1 class="title">Kodawari Koi Futter Kompass</h1>
+        <p class="sub">
+          Premium App zur optimalen Koifütterung – klar, schnell, zuverlässig.<br/>
+          <span style="opacity:.9">Download. Installieren. Loslegen.</span>
+        </p>
+
+        <div class="actions">
+          <a class="btn" href="KodawariKoiFutterKompass.apk" download>
+            ⬇ APK DOWNLOAD <span class="badge">ANDROID</span>
+          </a>
+        </div>
+
+        <div class="hint">
+          <b>Installation:</b> APK öffnen → „Unbekannte Apps zulassen“ (falls gefragt) → installieren.
+          <div class="tiny">Hinweis: Für Updates später denselben Signierschlüssel verwenden, falls du eine Release-APK verteilst.</div>
+        </div>
+
+        <div class="footer">© Kodawari Koi – by Norman Doderer</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // ---------- Helpers ----------
+    const DPR = Math.min(2, window.devicePixelRatio || 1);
+
+    function fitCanvas(c){
+      const w = Math.floor(window.innerWidth);
+      const h = Math.floor(window.innerHeight);
+      c.width = Math.floor(w * DPR);
+      c.height = Math.floor(h * DPR);
+      c.style.width = w + "px";
+      c.style.height = h + "px";
+      const ctx = c.getContext("2d");
+      ctx.setTransform(DPR,0,0,DPR,0,0);
+      return ctx;
+    }
+
+    // ---------- Mouse Glow ----------
+    const glow = document.getElementById("mouseGlow");
+    let mx = window.innerWidth/2, my = window.innerHeight/2;
+    let gx = mx, gy = my;
+
+    window.addEventListener("pointermove", (e)=>{
+      mx = e.clientX; my = e.clientY;
+    }, {passive:true});
+
+    function animateGlow(){
+      // smooth follow
+      gx += (mx - gx) * 0.12;
+      gy += (my - gy) * 0.12;
+      glow.style.background = `radial-gradient(260px 260px at ${gx}px ${gy}px,
+        rgba(255,205,95,.18),
+        rgba(255,205,95,.07) 35%,
+        transparent 70%)`;
+      requestAnimationFrame(animateGlow);
+    }
+    requestAnimationFrame(animateGlow);
+
+    // ---------- Waves + Koi Motion ----------
+    const wavesCanvas = document.getElementById("bgWaves");
+    let wctx = fitCanvas(wavesCanvas);
+
+    // Koi shapes: simple stylized fish (no images) drifting
+    const koiCount = 5;
+    const kois = Array.from({length:koiCount}, (_,i)=>({
+      x: Math.random()*window.innerWidth,
+      y: Math.random()*window.innerHeight,
+      s: 0.9 + Math.random()*1.2,
+      a: Math.random()*Math.PI*2,
+      v: 0.18 + Math.random()*0.28,
+      wob: Math.random()*10,
+      dir: Math.random()<0.5 ? -1 : 1,
+    }));
+
+    function drawKoi(ctx, x, y, scale, rot, alpha){
+      ctx.save();
+      ctx.translate(x,y);
+      ctx.rotate(rot);
+      ctx.scale(scale, scale);
+
+      // soft gold stroke
+      const grad = ctx.createLinearGradient(-60, -40, 80, 40);
+      grad.addColorStop(0, `rgba(247,195,95,${alpha})`);
+      grad.addColorStop(1, `rgba(255,226,154,${alpha*0.65})`);
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = grad;
+      ctx.fillStyle = `rgba(247,195,95,${alpha*0.06})`;
+
+      // body (teardrop-ish)
+      ctx.beginPath();
+      ctx.moveTo(-55, 0);
+      ctx.bezierCurveTo(-25, -26, 25, -22, 55, 0);
+      ctx.bezierCurveTo(25, 22, -25, 26, -55, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // tail
+      ctx.beginPath();
+      ctx.moveTo(-55, 0);
+      ctx.bezierCurveTo(-78, -20, -95, -6, -110, 0);
+      ctx.bezierCurveTo(-95, 6, -78, 20, -55, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // fin
+      ctx.beginPath();
+      ctx.moveTo(10, 0);
+      ctx.bezierCurveTo(-2, -30, -30, -24, -18, -2);
+      ctx.stroke();
+
+      // subtle scales lines
+      ctx.globalAlpha = alpha*0.35;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for(let i=-35;i<=35;i+=10){
+        ctx.moveTo(i,-10);
+        ctx.quadraticCurveTo(i+4,0,i,10);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawWaves(t){
+      const w = window.innerWidth, h = window.innerHeight;
+      wctx.clearRect(0,0,w,h);
+
+      // water gradient
+      const g = wctx.createRadialGradient(w*0.5, h*0.15, 10, w*0.5, h*0.2, Math.max(w,h));
+      g.addColorStop(0, "rgba(255,226,154,0.08)");
+      g.addColorStop(0.35, "rgba(247,195,95,0.04)");
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      wctx.fillStyle = g;
+      wctx.fillRect(0,0,w,h);
+
+      // animated wave lines
+      wctx.save();
+      wctx.globalAlpha = 0.35;
+      wctx.lineWidth = 1;
+      for(let k=0;k<7;k++){
+        const y0 = (h*0.18) + k*(h*0.11);
+        wctx.beginPath();
+        for(let x=0;x<=w;x+=16){
+          const y = y0 + Math.sin((x*0.012) + (t*0.0012) + k)*10 + Math.sin((x*0.004) - (t*0.001) + k)*6;
+          if(x===0) wctx.moveTo(x,y);
+          else wctx.lineTo(x,y);
+        }
+        const lg = wctx.createLinearGradient(0,y0,w,y0);
+        lg.addColorStop(0, "rgba(255,226,154,0.00)");
+        lg.addColorStop(0.25, "rgba(255,226,154,0.12)");
+        lg.addColorStop(0.5, "rgba(247,195,95,0.10)");
+        lg.addColorStop(0.75, "rgba(255,226,154,0.12)");
+        lg.addColorStop(1, "rgba(255,226,154,0.00)");
+        wctx.strokeStyle = lg;
+        wctx.stroke();
+      }
+      wctx.restore();
+
+      // kois drifting
+      for(const koi of kois){
+        koi.a += 0.0022 * koi.dir;
+        koi.x += Math.cos(koi.a) * koi.v * 2.2;
+        koi.y += Math.sin(koi.a*0.9) * koi.v * 1.8;
+
+        // wrap around
+        if(koi.x < -160) koi.x = w + 160;
+        if(koi.x > w + 160) koi.x = -160;
+        if(koi.y < -160) koi.y = h + 160;
+        if(koi.y > h + 160) koi.y = -160;
+
+        const wob = Math.sin((t*0.002) + koi.wob) * 0.18;
+        const rot = Math.atan2(Math.sin(koi.a*0.9), Math.cos(koi.a)) + wob;
+        drawKoi(wctx, koi.x, koi.y, koi.s, rot, 0.22);
+      }
+    }
+
+    // ---------- Gold Particles ----------
+    const particlesCanvas = document.getElementById("bgParticles");
+    let pctx = fitCanvas(particlesCanvas);
+
+    const PCOUNT = Math.min(140, Math.floor((window.innerWidth*window.innerHeight)/14000));
+    const particles = Array.from({length:PCOUNT}, ()=>({
+      x: Math.random()*window.innerWidth,
+      y: Math.random()*window.innerHeight,
+      r: 0.6 + Math.random()*1.8,
+      a: Math.random()*Math.PI*2,
+      sp: 0.15 + Math.random()*0.55,
+      tw: Math.random()*1000,
+      drift: (Math.random()*2-1)*0.08
+    }));
+
+    function drawParticles(t){
+      const w = window.innerWidth, h = window.innerHeight;
+      pctx.clearRect(0,0,w,h);
+
+      for(const p of particles){
+        p.y -= p.sp;
+        p.x += Math.sin((t*0.001) + p.tw) * 0.22 + p.drift;
+
+        if(p.y < -20){ p.y = h + 20; p.x = Math.random()*w; }
+        if(p.x < -20) p.x = w + 20;
+        if(p.x > w + 20) p.x = -20;
+
+        const twinkle = 0.35 + 0.65*(0.5 + 0.5*Math.sin((t*0.004) + p.tw));
+        const alpha = 0.08 + 0.22*twinkle;
+
+        // glow dot
+        const grd = pctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r*10);
+        grd.addColorStop(0, `rgba(255,226,154,${alpha})`);
+        grd.addColorStop(0.35, `rgba(247,195,95,${alpha*0.65})`);
+        grd.addColorStop(1, "rgba(0,0,0,0)");
+
+        pctx.fillStyle = grd;
+        pctx.beginPath();
+        pctx.arc(p.x,p.y,p.r*10,0,Math.PI*2);
+        pctx.fill();
+
+        // tiny core
+        pctx.fillStyle = `rgba(255,226,154,${Math.min(.65, alpha*2.4)})`;
+        pctx.beginPath();
+        pctx.arc(p.x,p.y,Math.max(.8, p.r),0,Math.PI*2);
+        pctx.fill();
+      }
+    }
+
+    // ---------- RAF loop ----------
+    let last = 0;
+    function raf(t){
+      // cap when tab is inactive
+      if(t - last > 100){ last = t; }
+      drawWaves(t);
+      drawParticles(t);
+      requestAnimationFrame(raf);
+    }
+    requestAnimationFrame(raf);
+
+    // ---------- Resize ----------
+    window.addEventListener("resize", ()=>{
+      wctx = fitCanvas(wavesCanvas);
+      pctx = fitCanvas(particlesCanvas);
+    }, {passive:true});
+  
+    // ---------- Password Gate (client-side) ----------
+    (function(){
+      const PASS = "koi";
+      const KEY = "kodawari_unlocked_v1";
+      const gate = document.getElementById("pwGate");
+      const panel = document.getElementById("pwPanel");
+      const input = document.getElementById("pwInput");
+      const btn = document.getElementById("pwBtn");
+      const err = document.getElementById("pwError");
+
+      function unlock(){
+        document.body.classList.remove("locked");
+        gate.style.display = "none";
+        try{ sessionStorage.setItem(KEY, "1"); }catch(e){}
+        // focus nowhere
+        input.blur();
+      }
+
+      function fail(){
+        err.textContent = "Falsches Passwort.";
+        panel.classList.remove("shake");
+        // reflow
+        void panel.offsetWidth;
+        panel.classList.add("shake");
+        input.select();
+      }
+
+      function check(){
+        const v = (input.value || "").trim().toLowerCase();
+        if(v === PASS) unlock(); else fail();
+      }
+
+      // already unlocked this session?
+      try{
+        if(sessionStorage.getItem(KEY) === "1"){
+          unlock();
+          return;
+        }
+      }catch(e){}
+
+      // keep focus
+      setTimeout(()=>input.focus(), 200);
+
+      btn.addEventListener("click", check);
+      input.addEventListener("keydown", (e)=>{
+        if(e.key === "Enter") check();
+      });
+    })();
+
+  </script>
+</body>
+</html>
