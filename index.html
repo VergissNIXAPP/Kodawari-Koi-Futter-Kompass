@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#070707" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Kodawari KoiFutter Kompass</title>
+  <link rel="preload" href="assets/icons/icon-512.png" as="image" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand__logo" src="assets/icons/icon-192.png" alt="Kodawari Koi" />
+        <div class="brand__text">
+          <div class="brand__title">Kodawari Koi</div>
+          <div class="brand__sub">KoiFutter Kompass</div>
+        </div>
+      </div>
+
+      <div class="topbar__actions">
+        <button class="iconbtn" id="btnInstall" title="Installieren" aria-label="Installieren">
+          <span class="icon">⬇︎</span><span class="hide-sm">Install</span>
+        </button>
+        <button class="iconbtn" id="btnSync" title="Export/Import" aria-label="Export/Import">
+          <span class="icon">⇄</span><span class="hide-sm">Daten</span>
+        </button>
+        <button class="iconbtn" id="btnSettings" title="Einstellungen" aria-label="Einstellungen">
+          <span class="icon">⚙︎</span><span class="hide-sm">Settings</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="main">
+      <nav class="tabs" aria-label="Navigation">
+        <button class="tab active" data-route="dash">Übersicht</button>
+        <button class="tab" data-route="ponds">Teiche</button>
+        <button class="tab" data-route="koi">Koi</button>
+        <button class="tab" data-route="calc">Rechner</button>
+        <button class="tab" data-route="log">Logbuch</button>
+      </nav>
+
+      <section class="view" id="view"></section>
+    </main>
+
+    <footer class="bottombar" aria-label="Bottom Navigation">
+      <button class="bottab active" data-route="dash"><span>🏠</span><small>Home</small></button>
+      <button class="bottab" data-route="ponds"><span>🌊</span><small>Teich</small></button>
+      <button class="bottab" data-route="koi"><span>🐟</span><small>Koi</small></button>
+      <button class="bottab" data-route="calc"><span>🧮</span><small>Rechner</small></button>
+      <button class="bottab" data-route="log"><span>📝</span><small>Log</small></button>
+    </footer>
+  </div>
+
+  <!-- Modals -->
+  <div class="modal" id="modal" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal__card">
+      <div class="modal__head">
+        <div class="modal__title" id="modalTitle">—</div>
+        <button class="iconbtn" id="modalClose" aria-label="Schließen"><span class="icon">✕</span></button>
+      </div>
+      <div class="modal__body" id="modalBody"></div>
+      <div class="modal__foot" id="modalFoot"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Lock Screen -->
+  <div class="lock" id="lock" hidden>
+    <div class="lock__card">
+      <img src="assets/icons/icon-192.png" class="lock__logo" alt="" />
+      <h1>Kodawari Koi</h1>
+      <p>Diese WebApp ist (optional) passwortgeschützt.</p>
+      <form id="lockForm" class="lock__form">
+        <input id="lockPw" type="password" inputmode="text" autocomplete="current-password" placeholder="Passwort" />
+        <button class="btn primary" type="submit">Entsperren</button>
+      </form>
+      <p class="lock__hint">Standard: <b>koi</b> (änderbar in den Einstellungen)</p>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
