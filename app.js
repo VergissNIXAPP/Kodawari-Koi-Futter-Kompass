@@ -212,6 +212,180 @@ const PRESET_FOODS = [
     url: "https://www.kodawari-koi.de/product-page/takazumi-vital",
     notes: "Für Immunkur, Stressphasen und kalte Jahreszeit (ab ca. 4°C)."
   }
+
+
+  // Alpha (Kodawari Koi Shop)
+  {
+    id: "alpha_complete",
+    name: "Alpha Complete",
+    brand: "Alpha",
+    category: "All-in-One / Ganzjahr",
+    protein: 38.0,
+    fat: 8.0,
+    fiber: 2.0,
+    ash: 9.0,
+    phosphorus: 1.2,
+    temp_min_c: 10,
+    temp_max_c: 30,
+    tags: ["Erhalt", "Wachstum", "Farbaufbau"],
+    url: "https://www.kodawari-koi.de/product-page/alpha-complete",
+    notes: "Premium All-in-One: Wachstum + Farbe + Immunsystem in einer Rezeptur (ab ca. 10°C)."
+  },
+  {
+    id: "alpha_ice_5mm",
+    name: "Alpha Ice 5mm",
+    brand: "Alpha",
+    category: "Winter / Wheatgerm",
+    protein: 30.0,
+    fat: 6.0,
+    fiber: 2.5,
+    ash: 8.5,
+    phosphorus: 1.0,
+    temp_min_c: 6,
+    temp_max_c: 12,
+    tags: ["Winter", "Frühjahr/Herbst", "Schonfütterung"],
+    url: "https://www.kodawari-koi.de/product-page/alpha-ice-5mm",
+    notes: "Schonendes Winter-/Übergangsfutter (ca. 6–12°C)."
+  },
+  {
+    id: "alpha_addon_color",
+    name: "Alpha Addon Color 5mm",
+    brand: "Alpha",
+    category: "Addon / Farbe",
+    protein: 42.0,
+    fat: 9.0,
+    fiber: 1.5,
+    ash: 9.5,
+    temp_min_c: 16,
+    temp_max_c: 30,
+    tags: ["Farbaufbau"],
+    url: "https://www.kodawari-koi.de/product-page/alpha-addon-color-5mm",
+    notes: "Farbooster als Beimischung (Empfehlung: ab ca. 16°C)."
+  },
+  {
+    id: "alpha_premium_bundle",
+    name: "Alpha Premium Bundle: Complete + Addon Color",
+    brand: "Alpha",
+    category: "Bundle",
+    temp_min_c: 10,
+    temp_max_c: 30,
+    tags: ["Bundle", "Erhalt", "Wachstum", "Farbaufbau"],
+    url: "https://www.kodawari-koi.de/product-page/alpha-premium-bundle-complete-addon-color",
+    notes: "Bundle aus Alpha Complete + Addon Color."
+  },
+
+  // Kenji Koi (Kodawari Koi Shop)
+  {
+    id: "kenji_daily_food",
+    name: "Kenji Koi Daily Food",
+    brand: "Kenji Koi",
+    category: "Allround / Alltag",
+    protein: 33.0,
+    fat: 6.5,
+    fiber: 3.0,
+    ash: 5.0,
+    temp_min_c: 10,
+    temp_max_c: 30,
+    tags: ["Erhalt", "Allround"],
+    url: "https://www.kodawari-koi.de/product-page/kenji-koi-daily-food",
+    notes: "Allround-Basis für die tägliche Fütterung (ab ca. 10°C)."
+  },
+  {
+    id: "kenji_season_5kg",
+    name: "Kenji Koi Season 5kg",
+    brand: "Kenji Koi",
+    category: "Saison / Schonend",
+    protein: 32.0,
+    fat: 7.0,
+    fiber: 2.5,
+    ash: 8.0,
+    phosphorus: 1.1,
+    temp_min_c: 8,
+    temp_max_c: 18,
+    tags: ["Frühjahr/Herbst", "Schonfütterung", "Erhalt"],
+    url: "https://www.kodawari-koi.de/product-page/kenji-koi-season-5kg",
+    notes: "Wheatgerm-basiert, sehr gut für Übergang (ab ca. 8–10°C)."
+  },
+  {
+    id: "kenji_growth_plus",
+    name: "Kenji Koi Growth+",
+    brand: "Kenji Koi",
+    category: "Wachstum / Sommer",
+    protein: 45.0,
+    fat: 12.0,
+    fiber: 1.5,
+    ash: 9.5,
+    phosphorus: 1.2,
+    temp_min_c: 16,
+    temp_max_c: 30,
+    tags: ["Wachstum"],
+    url: "https://www.kodawari-koi.de/product-page/kenji-koi-growth-plus",
+    notes: "Sommer-Wachstumsfutter (ab ca. 16°C, ideal >20°C)."
+  },
+  {
+    id: "kenji_color_intense",
+    name: "Kenji Koi Color Intense 5kg",
+    brand: "Kenji Koi",
+    category: "Farbe / Sommer",
+    protein: 40.0,
+    fat: 7.0,
+    fiber: 2.0,
+    ash: 8.5,
+    phosphorus: 1.0,
+    temp_min_c: 16,
+    temp_max_c: 30,
+    tags: ["Farbaufbau"],
+    url: "https://www.kodawari-koi.de/product-page/kenji-koi-color-intense-5kg-5-6mm",
+    notes: "Farbfutter mit Astaxanthin & Spirulina (ab ca. 15–16°C)."
+  },
+  {
+    id: "kenji_color_growth",
+    name: "Kenji Koi Color & Growth+ 5kg",
+    brand: "Kenji Koi",
+    category: "Leistung / Sommer",
+    protein: 47.0,
+    fat: 10.0,
+    fiber: 1.2,
+    ash: 9.0,
+    phosphorus: 1.3,
+    temp_min_c: 16,
+    temp_max_c: 30,
+    tags: ["Wachstum", "Farbaufbau"],
+    url: "https://www.kodawari-koi.de/product-page/kenji-koi-color-growth-5kg",
+    notes: "Leistungsfutter: Wachstum + Farbe (ab ca. 16°C)."
+  },
+  {
+    id: "kenji_winter_balance",
+    name: "Kenji Koi Winter Balance 5kg",
+    brand: "Kenji Koi",
+    category: "Winter (sinkend)",
+    protein: 30.0,
+    fat: 6.0,
+    fiber: 2.5,
+    ash: 8.0,
+    phosphorus: 1.0,
+    temp_min_c: 4,
+    temp_max_c: 12,
+    tags: ["Winter", "Frühjahr/Herbst", "Schonfütterung"],
+    url: "https://www.kodawari-koi.de/product-page/kenji-koi-winter-balance-5kg",
+    notes: "Sinkendes Winterfutter (ca. 4–12°C)."
+  },
+  {
+    id: "kenji_snack_chip",
+    name: "Kenji Koi Snack Chip",
+    brand: "Kenji Koi",
+    category: "Snack",
+    protein: 30.0,
+    fat: 5.0,
+    fiber: 3.0,
+    ash: 6.0,
+    temp_min_c: 12,
+    temp_max_c: 30,
+    tags: ["Snack"],
+    url: "https://www.kodawari-koi.de/product-page/kenji-koi-snack-chip",
+    notes: "Belohnung/Snack – ideal zur Handfütterung (ab ca. 12°C)."
+  }
+
 ];
 
 async function addMissingFoods(presets){
@@ -227,6 +401,17 @@ async function addMissingFoods(presets){
 function foodLabel(f){
   const b = (f.brand||"").trim();
   return b ? `${b} • ${f.name}` : (f.name||"Futter");
+}
+
+
+function isShopFood(f){
+  const u = (f && f.url) ? String(f.url) : "";
+  return u.includes("kodawari-koi.de/");
+}
+function shopFoodsList(){
+  const all = Array.isArray(state.foods) ? state.foods : [];
+  const shop = all.filter(isShopFood);
+  return shop.length ? shop : all;
 }
 
 
@@ -325,9 +510,10 @@ function recommendedFeedGPerDay(tempC, goal){
 
 function recommendFoodByTempAndGoal(tempC, goal){
   const t = Number(tempC);
-  if(!state.foods || state.foods.length === 0) return null;
+  const list = shopFoodsList();
+  if(!list || list.length === 0) return null;
   const g = (goal || "").trim();
-  const candidates = state.foods.filter(f=>{
+  const candidates = list.filter(f=>{
     const min = Number(f.temp_min_c);
     const max = Number(f.temp_max_c);
     const okTemp = (Number.isFinite(min)? t >= min : true) && (Number.isFinite(max)? t <= max : true);
@@ -335,7 +521,7 @@ function recommendFoodByTempAndGoal(tempC, goal){
     const okGoal = !g ? true : (tags.includes(g) || tags.includes("Erhalt") || tags.length===0);
     return okTemp && okGoal;
   });
-  const pickFrom = candidates.length ? candidates : state.foods;
+  const pickFrom = candidates.length ? candidates : list;
   // prefer foods that explicitly match goal
   pickFrom.sort((a,b)=>{
     const at = Array.isArray(a.tags)?a.tags:[];
@@ -350,8 +536,9 @@ function recommendFoodByTempAndGoal(tempC, goal){
 function recommendFoodsByTempAndGoal(tempC, goal, limit=3){
   const t = Number(tempC);
   const g = normalizeGoal(goal);
-  if(!state.foods || state.foods.length===0) return [];
-  const scored = state.foods.map(f=>{
+  const list = shopFoodsList();
+  if(!list || list.length===0) return [];
+  const scored = list.map(f=>{
     const min = Number(f.temp_min_c);
     const max = Number(f.temp_max_c);
     const okTemp = (Number.isFinite(min)? t >= min : true) && (Number.isFinite(max)? t <= max : true);
@@ -640,7 +827,7 @@ function viewCalc(){
         <div>
           <div class="label">Futtertyp</div>
           <select class="input" id="calcFood">
-            ${state.foods
+            ${shopFoodsList()
               .slice()
               .sort((a,b)=>(a.name||"").localeCompare(b.name||""))
               .map(f=>`<option value="${f.id}" ${f.name===state.settings.defaultFood?"selected":""}>${escapeHtml(f.name)}</option>`)
@@ -1093,7 +1280,14 @@ function modalLog(existing=null){
     cost_eur: ""
   };
   const dtLocal = isoToLocalInput(l.at);
-  const foods = state.foods.slice().sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const allFoods = Array.isArray(state.foods) ? state.foods.slice() : [];
+  const foods = allFoods.filter(isShopFood);
+  // Falls ein alter Eintrag ein nicht‑Shop‑Futter referenziert, trotzdem anzeigen (damit nichts "verschwindet")
+  if(l.foodId && !foods.some(f=>f.id===l.foodId)){
+    const sel = allFoods.find(f=>f.id===l.foodId);
+    if(sel) foods.push(sel);
+  }
+  foods.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   openModal({
     title: existing ? "Eintrag bearbeiten" : "Eintrag hinzufügen",
     bodyHTML: `
