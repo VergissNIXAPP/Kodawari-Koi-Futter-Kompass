@@ -27,11 +27,11 @@ const storage = {
   _lsWrite(store, arr){
     try{ localStorage.setItem(this._lsKey(store), JSON.stringify(arr)); }catch(e){}
   },
-  async storage.getAll(db, store){
+  async getAll(db, store){
     if(this.backend === "idb") return idbGetAll(db, store);
     return this._lsRead(store);
   },
-  async storage.put(db, store, value){
+  async put(db, store, value){
     if(this.backend === "idb") return idbPut(db, store, value);
     const arr = this._lsRead(store);
     const id = value && value.id !== undefined ? value.id : null;
@@ -44,17 +44,17 @@ const storage = {
     this._lsWrite(store, arr);
     return value;
   },
-  async storage.del(db, store, key){
+  async del(db, store, key){
     if(this.backend === "idb") return idbDel(db, store, key);
     const arr = this._lsRead(store).filter(x => !(x && x.id === key));
     this._lsWrite(store, arr);
   },
-  async storage.setMeta(db, key, value){
+  async setMeta(db, key, value){
     if(this.backend === "idb") return idbSetMeta(db, key, value);
     try{ localStorage.setItem(this._lsKey(`meta_${key}`), JSON.stringify(value)); }catch(e){}
     return value;
   },
-  async storage.getMeta(db, key, fallback=null){
+  async getMeta(db, key, fallback=null){
     if(this.backend === "idb") return idbGetMeta(db, key, fallback);
     try{
       const raw = localStorage.getItem(this._lsKey(`meta_${key}`));
@@ -63,7 +63,7 @@ const storage = {
       return fallback;
     }
   },
-  async storage.exportAll(db){
+  async exportAll(db){
     if(this.backend === "idb") return idbExportAll(db);
     // export from LS
     const stores = ["ponds","koi","logs","foods","koiPhotos","waterLogs","reminders"];
@@ -71,11 +71,11 @@ const storage = {
     for(const s of stores) out[s] = this._lsRead(s);
     // meta keys
     for(const k of ["settings"]){
-      out.meta[k] = await this.storage.getMeta(db, k, null);
+      out.meta[k] = await this.getMeta(db, k, null);
     }
     return out;
   },
-  async storage.importAll(db, payload){
+  async importAll(db, payload){
     if(this.backend === "idb") return idbImportAll(db, payload);
     if(!payload || typeof payload !== "object") return;
     const stores = ["ponds","koi","logs","foods","koiPhotos","waterLogs","reminders"];
@@ -84,7 +84,7 @@ const storage = {
     }
     if(payload.meta && typeof payload.meta === "object"){
       for(const [k,v] of Object.entries(payload.meta)){
-        await this.storage.setMeta(db, k, v);
+        await this.setMeta(db, k, v);
       }
     }
   }
