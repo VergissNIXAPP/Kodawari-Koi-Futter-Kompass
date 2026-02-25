@@ -1,4 +1,94 @@
-import { openDB, getAll, put, del, getMeta, setMeta, exportAll, importAll } from "./db.js";
+import { openDB as idbOpenDB, getAll as idbGetAll, put as idbPut, del as idbDel, getMeta as idbGetMeta, setMeta as idbSetMeta, exportAll as idbExportAll, importAll as idbImportAll } from "./db.js";
+
+/* Storage backend: IndexedDB (default) with localStorage fallback */
+const LS_PREFIX = "kk_";
+const storage = {
+  backend: "idb", // "idb" | "ls"
+  async open(){
+    try{
+      const db = await idbOpenDB();
+      this.backend = "idb";
+      return db;
+    }catch(err){
+      console.warn("IndexedDB unavailable – falling back to localStorage", err);
+      this.backend = "ls";
+      return null;
+    }
+  },
+  _lsKey(store){ return `${LS_PREFIX}${store}`; },
+  _lsRead(store){
+    try{
+      const raw = localStorage.getItem(this._lsKey(store));
+      return raw ? JSON.parse(raw) : [];
+    }catch(e){
+      return [];
+    }
+  },
+  _lsWrite(store, arr){
+    try{ localStorage.setItem(this._lsKey(store), JSON.stringify(arr)); }catch(e){}
+  },
+  async storage.getAll(db, store){
+    if(this.backend === "idb") return idbGetAll(db, store);
+    return this._lsRead(store);
+  },
+  async storage.put(db, store, value){
+    if(this.backend === "idb") return idbPut(db, store, value);
+    const arr = this._lsRead(store);
+    const id = value && value.id !== undefined ? value.id : null;
+    if(id === null){
+      arr.push(value);
+    }else{
+      const idx = arr.findIndex(x => x && x.id === id);
+      if(idx >= 0) arr[idx] = value; else arr.push(value);
+    }
+    this._lsWrite(store, arr);
+    return value;
+  },
+  async storage.del(db, store, key){
+    if(this.backend === "idb") return idbDel(db, store, key);
+    const arr = this._lsRead(store).filter(x => !(x && x.id === key));
+    this._lsWrite(store, arr);
+  },
+  async storage.setMeta(db, key, value){
+    if(this.backend === "idb") return idbSetMeta(db, key, value);
+    try{ localStorage.setItem(this._lsKey(`meta_${key}`), JSON.stringify(value)); }catch(e){}
+    return value;
+  },
+  async storage.getMeta(db, key, fallback=null){
+    if(this.backend === "idb") return idbGetMeta(db, key, fallback);
+    try{
+      const raw = localStorage.getItem(this._lsKey(`meta_${key}`));
+      return raw ? JSON.parse(raw) : fallback;
+    }catch(e){
+      return fallback;
+    }
+  },
+  async storage.exportAll(db){
+    if(this.backend === "idb") return idbExportAll(db);
+    // export from LS
+    const stores = ["ponds","koi","logs","foods","koiPhotos","waterLogs","reminders"];
+    const out = { meta:{} };
+    for(const s of stores) out[s] = this._lsRead(s);
+    // meta keys
+    for(const k of ["settings"]){
+      out.meta[k] = await this.storage.getMeta(db, k, null);
+    }
+    return out;
+  },
+  async storage.importAll(db, payload){
+    if(this.backend === "idb") return idbImportAll(db, payload);
+    if(!payload || typeof payload !== "object") return;
+    const stores = ["ponds","koi","logs","foods","koiPhotos","waterLogs","reminders"];
+    for(const s of stores){
+      if(Array.isArray(payload[s])) this._lsWrite(s, payload[s]);
+    }
+    if(payload.meta && typeof payload.meta === "object"){
+      for(const [k,v] of Object.entries(payload.meta)){
+        await this.storage.setMeta(db, k, v);
+      }
+    }
+  }
+};
 
 const $ = (sel, el=document) => el.querySelector(sel);
 const $$ = (sel, el=document) => Array.from(el.querySelectorAll(sel));
@@ -214,23 +304,23 @@ async function addMissingFoods(presets){
   const existing = new Set((state.foods||[]).map(f=>f.id));
   for(const f of presets){
     if(existing.has(f.id)) continue;
-    await put(state.db, "foods", f);
+    await storage.put(state.db, "foods", f);
     existing.add(f.id);
   }
-  state.foods = await getAll(state.db, "foods");
+  state.foods = await storage.getAll(state.db, "foods");
 }
 
 
 async function removeFoodsByIds(ids=[]){
   if(!state.db) return;
   const set = new Set(ids.map(x=>String(x)));
-  const current = await getAll(state.db, "foods");
+  const current = await storage.getAll(state.db, "foods");
   const toDelete = current.filter(f => set.has(String(f.id)) || set.has(String(f.name||"").toLowerCase()));
   for(const f of toDelete){
-    try{ await del(state.db, "foods", f.id); }catch{}
+    try{ await storage.del(state.db, "foods", f.id); }catch{}
   }
   // refresh in-memory list
-  try{ state.foods = await getAll(state.db, "foods"); }catch{ state.foods = []; }
+  try{ state.foods = await storage.getAll(state.db, "foods"); }catch{ state.foods = []; }
 }
 
 
@@ -402,7 +492,7 @@ async function bumpReminder(r){
   const every = Math.max(1, Number(r.every_days) || 7);
   const next = new Date(Date.now() + every*day).toISOString();
   const upd = { ...r, next_at: next };
-  await put(state.db, "reminders", upd);
+  await storage.put(state.db, "reminders", upd);
   await loadAll();
 }
 
@@ -437,14 +527,14 @@ function deriveKpis(){
 }
 
 async function loadAll(){
-  state.ponds = await getAll(state.db, "ponds");
-  state.koi = await getAll(state.db, "koi");
-  state.logs = await getAll(state.db, "logs");
+  state.ponds = await storage.getAll(state.db, "ponds");
+  state.koi = await storage.getAll(state.db, "koi");
+  state.logs = await storage.getAll(state.db, "logs");
   // v2 stores
-  try{ state.foods = await getAll(state.db, "foods"); }catch{ state.foods = []; }
-  try{ state.koiPhotos = await getAll(state.db, "koiPhotos"); }catch{ state.koiPhotos = []; }
-  try{ state.waterLogs = await getAll(state.db, "waterLogs"); }catch{ state.waterLogs = []; }
-  try{ state.reminders = await getAll(state.db, "reminders"); }catch{ state.reminders = []; }
+  try{ state.foods = await storage.getAll(state.db, "foods"); }catch{ state.foods = []; }
+  try{ state.koiPhotos = await storage.getAll(state.db, "koiPhotos"); }catch{ state.koiPhotos = []; }
+  try{ state.waterLogs = await storage.getAll(state.db, "waterLogs"); }catch{ state.waterLogs = []; }
+  try{ state.reminders = await storage.getAll(state.db, "reminders"); }catch{ state.reminders = []; }
 }
 
 async function ensureDefaults(){
@@ -466,23 +556,23 @@ async function ensureDefaults(){
       { id:"rem_filter", name:"Filterreinigung", every_days: 7, next_at: new Date(now + 7*day).toISOString(), enabled: true },
       { id:"rem_watertest", name:"Wasserwerte messen", every_days: 7, next_at: new Date(now + 7*day).toISOString(), enabled: true },
     ];
-    for(const r of defaults) await put(state.db, "reminders", r);
-    state.reminders = await getAll(state.db, "reminders");
+    for(const r of defaults) await storage.put(state.db, "reminders", r);
+    state.reminders = await storage.getAll(state.db, "reminders");
   }
 }
 
 async function loadSettings(){
-  const s = await getMeta(state.db, "settings", null);
+  const s = await storage.getMeta(state.db, "settings", null);
   if(s && typeof s === "object"){
     state.settings = { ...state.settings, ...s };
     if("lockPassword" in state.settings) delete state.settings.lockPassword;
   } else {
-    await setMeta(state.db, "settings", state.settings);
+    await storage.setMeta(state.db, "settings", state.settings);
   }
 }
 
 async function saveSettings(){
-  await setMeta(state.db, "settings", state.settings);
+  await storage.setMeta(state.db, "settings", state.settings);
 }
 
 function render(){
@@ -646,7 +736,7 @@ function openDataTools(){
       $("#dtClose").addEventListener("click", closeModal);
 
       $("#doExport").addEventListener("click", async ()=>{
-        const data = await exportAll(state.db);
+        const data = await storage.exportAll(state.db);
         const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
@@ -662,7 +752,7 @@ function openDataTools(){
         const text = await file.text();
         const data = JSON.parse(text);
         if(!confirm("Import überschreibt deine aktuellen Daten. Fortfahren?")) return;
-        await importAll(state.db, data);
+        await storage.importAll(state.db, data);
         await loadSettings();
         await loadAll();
         toast("Import fertig");
@@ -673,7 +763,7 @@ render();
       $("#doWipe").addEventListener("click", async ()=>{
         if(!confirm("Wirklich ALLES löschen?")) return;
         // wipe stores by importing empty sets
-        await importAll(state.db, {ponds:[], koi:[], logs:[], settings: state.settings});
+        await storage.importAll(state.db, {ponds:[], koi:[], logs:[], settings: state.settings});
         await loadAll();
         toast("Zurückgesetzt");
         render();
@@ -719,7 +809,7 @@ async function registerSW(){
 }
 
 async function init(){
-  state.db = await openDB();
+  state.db = await storage.open();
   await loadSettings();
   await loadAll();
   await ensureDefaults();
