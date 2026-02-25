@@ -6,18 +6,32 @@ const uid = () => Math.random().toString(16).slice(2) + Date.now().toString(16);
 
 const LOCK_PASSWORD = "koi"; // Nur hier im Code ändern
 
+const GOALS = [
+  "Erhalt",
+  "Wachstum",
+  "Konditionsaufbau",
+  "Schonfütterung",
+  "Farbentwicklung",
+  "Frühjahr/Herbst",
+];
+
 const state = {
   route: "dash",
   db: null,
   ponds: [],
   koi: [],
   logs: [],
+  foods: [],
+  koiPhotos: [],
+  waterLogs: [],
+  reminders: [],
   settings: {
     lockEnabled: true,
     weightMode: "estimate", // estimate|manual
     weightFactor: 0.012, // g per cm^3 factor
     tempUnit: "C",
     defaultFood: "Allround",
+    defaultGoal: "Erhalt",
   }
 };
 
@@ -71,7 +85,7 @@ function koiWeight(k){
   return 0;
 }
 
-function totalBiomassG(){
+function totalWeightG(){
   return state.koi.reduce((a,k)=>a + koiWeight(k), 0);
 }
 
@@ -88,15 +102,82 @@ function recPercentByTemp(tempC){
 }
 
 function recommendedFeedGPerDay(tempC){
-  const biomass = totalBiomassG();
+  const biomass = totalWeightG();
   const pct = recPercentByTemp(tempC);
   return biomass * pct;
+}
+
+function recommendFoodByTempAndGoal(tempC, goal){
+  const t = Number(tempC);
+  if(!state.foods || state.foods.length === 0) return null;
+  const g = (goal || "").trim();
+  const candidates = state.foods.filter(f=>{
+    const min = Number(f.temp_min_c);
+    const max = Number(f.temp_max_c);
+    const okTemp = (Number.isFinite(min)? t >= min : true) && (Number.isFinite(max)? t <= max : true);
+    const tags = Array.isArray(f.tags) ? f.tags : [];
+    const okGoal = !g ? true : (tags.includes(g) || tags.includes("Erhalt") || tags.length===0);
+    return okTemp && okGoal;
+  });
+  const pickFrom = candidates.length ? candidates : state.foods;
+  // prefer foods that explicitly match goal
+  pickFrom.sort((a,b)=>{
+    const at = Array.isArray(a.tags)?a.tags:[];
+    const bt = Array.isArray(b.tags)?b.tags:[];
+    const as = at.includes(g)?2:at.includes("Erhalt")?1:0;
+    const bs = bt.includes(g)?2:bt.includes("Erhalt")?1:0;
+    return bs - as;
+  });
+  return pickFrom[0] || null;
+}
+
+function nextDueReminder(){
+  const enabled = (state.reminders||[]).filter(r=>r.enabled);
+  const due = enabled
+    .map(r=>({ ...r, _t: Date.parse(r.next_at || "") }))
+    .filter(r=>Number.isFinite(r._t))
+    .sort((a,b)=>a._t-b._t);
+  return due[0] || null;
+}
+
+function isReminderDue(r){
+  const t = Date.parse(r.next_at || "");
+  return Number.isFinite(t) && t <= Date.now();
+}
+
+async function bumpReminder(r){
+  const day = 24*60*60*1000;
+  const every = Math.max(1, Number(r.every_days) || 7);
+  const next = new Date(Date.now() + every*day).toISOString();
+  const upd = { ...r, next_at: next };
+  await put(state.db, "reminders", upd);
+  await loadAll();
+}
+
+function startReminderLoop(){
+  // Only while app is open (simple + reliable). Uses Notification API if granted.
+  clearInterval(startReminderLoop._t);
+  startReminderLoop._seen = startReminderLoop._seen || new Set();
+  startReminderLoop._t = setInterval(async ()=>{
+    const due = (state.reminders||[]).filter(r=>r.enabled && isReminderDue(r));
+    if(due.length===0) return;
+    for(const r of due){
+      if(startReminderLoop._seen.has(r.id)) continue;
+      startReminderLoop._seen.add(r.id);
+      toast(`Erinnerung fällig: ${r.name}`);
+      if("Notification" in window && Notification.permission === "granted"){
+        try{ new Notification("Kodawari Koi", { body: `Erinnerung fällig: ${r.name}` }); }catch{}
+      }
+    }
+    // refresh dashboard badges
+    if(state.route === "dash" || state.route === "stats") render();
+  }, 60*1000);
 }
 
 function deriveKpis(){
   const ponds = state.ponds.length;
   const koi = state.koi.length;
-  const biomass = totalBiomassG();
+  const biomass = totalWeightG();
   const lastLog = state.logs
     .slice()
     .sort((a,b)=>new Date(b.at)-new Date(a.at))[0] || null;
@@ -107,6 +188,38 @@ async function loadAll(){
   state.ponds = await getAll(state.db, "ponds");
   state.koi = await getAll(state.db, "koi");
   state.logs = await getAll(state.db, "logs");
+  // v2 stores
+  try{ state.foods = await getAll(state.db, "foods"); }catch{ state.foods = []; }
+  try{ state.koiPhotos = await getAll(state.db, "koiPhotos"); }catch{ state.koiPhotos = []; }
+  try{ state.waterLogs = await getAll(state.db, "waterLogs"); }catch{ state.waterLogs = []; }
+  try{ state.reminders = await getAll(state.db, "reminders"); }catch{ state.reminders = []; }
+}
+
+async function ensureDefaults(){
+  // Default food catalogue
+  if(!state.foods || state.foods.length === 0){
+    const defaults = [
+      { id: "food_allround", name: "Allround", protein: 35, fat: 6, price_eur_per_kg: 8.90, temp_min_c: 12, temp_max_c: 24, tags:["Erhalt","Wachstum"] },
+      { id: "food_wheatgerm", name: "Wheatgerm (kalt)", protein: 32, fat: 5, price_eur_per_kg: 9.90, temp_min_c: 6, temp_max_c: 15, tags:["Schonfütterung","Frühjahr/Herbst"] },
+      { id: "food_growth", name: "Growth (warm)", protein: 40, fat: 8, price_eur_per_kg: 11.90, temp_min_c: 18, temp_max_c: 28, tags:["Wachstum","Konditionsaufbau"] },
+      { id: "food_color", name: "Color", protein: 36, fat: 7, price_eur_per_kg: 10.90, temp_min_c: 16, temp_max_c: 26, tags:["Farbentwicklung"] },
+    ];
+    for(const f of defaults) await put(state.db, "foods", f);
+    state.foods = await getAll(state.db, "foods");
+  }
+
+  // Default reminders
+  if(!state.reminders || state.reminders.length === 0){
+    const now = Date.now();
+    const day = 24*60*60*1000;
+    const defaults = [
+      { id:"rem_waterchange", name:"Wasserwechsel", every_days: 14, next_at: new Date(now + 14*day).toISOString(), enabled: true },
+      { id:"rem_filter", name:"Filterreinigung", every_days: 7, next_at: new Date(now + 7*day).toISOString(), enabled: true },
+      { id:"rem_watertest", name:"Wasserwerte messen", every_days: 7, next_at: new Date(now + 7*day).toISOString(), enabled: true },
+    ];
+    for(const r of defaults) await put(state.db, "reminders", r);
+    state.reminders = await getAll(state.db, "reminders");
+  }
 }
 
 async function loadSettings(){
@@ -130,6 +243,7 @@ function render(){
   if(state.route === "koi") v.innerHTML = viewKoi();
   if(state.route === "calc") v.innerHTML = viewCalc();
   if(state.route === "log") v.innerHTML = viewLog();
+  if(state.route === "stats") v.innerHTML = viewStats();
 
   // bind actions
   bindViewActions();
@@ -139,6 +253,8 @@ function viewDash(){
   const k = deriveKpis();
   const temp = state.ponds[0]?.temp_c ?? 18;
   const rec = recommendedFeedGPerDay(temp);
+  const recFood = recommendFoodByTempAndGoal(temp, state.settings.defaultGoal);
+  const nextReminder = nextDueReminder();
   return `
     <div class="grid">
       <section class="card">
@@ -146,12 +262,18 @@ function viewDash(){
         <div class="kpi">
           <div class="kpi__item"><div class="kpi__label">Teiche</div><div class="kpi__value">${k.ponds}</div></div>
           <div class="kpi__item"><div class="kpi__label">Koi</div><div class="kpi__value">${k.koi}</div></div>
-          <div class="kpi__item"><div class="kpi__label">Biomasse (geschätzt)</div><div class="kpi__value">${fmt(k.biomass/1000,2)} kg</div></div>
+          <div class="kpi__item"><div class="kpi__label">Gesamtgewicht (≈)</div><div class="kpi__value">${fmt(k.biomass/1000,2)} kg</div></div>
           <div class="kpi__item"><div class="kpi__label">Empfehlung/Tag</div><div class="kpi__value">${fmt(rec,0)} g</div></div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <span class="badge">Ziel: ${escapeHtml(state.settings.defaultGoal||"Erhalt")}</span>
+          <span class="badge">Futter‑Tipp: ${escapeHtml(recFood?.name || state.settings.defaultFood || "—")}</span>
+          ${nextReminder ? `<span class="badge">🔔 Nächstes: ${escapeHtml(nextReminder.name)} • ${new Date(nextReminder.next_at).toLocaleDateString("de-DE")}</span>` : ``}
         </div>
         <hr class="sep"/>
         <p>
-          Empfehlung basiert auf Temperatur & Biomasse. In den Einstellungen kannst du die Gewichtsschätzung anpassen.
+          Empfehlung basiert auf Temperatur & Gewicht. In den Einstellungen kannst du die Gewichtsschätzung anpassen –
+          und Futtersorten / Erinnerungen verwalten.
         </p>
         <div class="row">
           <button class="btn primary" data-act="quickLog">+ Fütterung loggen</button>
@@ -205,6 +327,7 @@ function pondItem(p){
       </div>
       ${p.note? `<div class="item__meta">${escapeHtml(p.note)}</div>`:""}
       <div class="item__actions">
+        <button class="btn" data-act="pondWater" data-id="${p.id}">Wasserwerte</button>
         <button class="btn" data-act="editPond" data-id="${p.id}">Bearbeiten</button>
         <button class="btn danger" data-act="delPond" data-id="${p.id}">Löschen</button>
       </div>
@@ -214,14 +337,14 @@ function pondItem(p){
 
 function viewKoi(){
   const list = state.koi.slice().sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-  const biomass = totalBiomassG();
+  const biomass = totalWeightG();
   return `
     <section class="card">
       <div class="row space">
         <h2>Koi</h2>
         <button class="btn primary" data-act="addKoi">+ Koi hinzufügen</button>
       </div>
-      <p>Gewicht ist ${state.settings.weightMode==="manual" ? "manuell" : "geschätzt"} (in Settings umstellbar). Biomasse: <b>${fmt(biomass/1000,2)} kg</b>.</p>
+      <p>Gewicht ist ${state.settings.weightMode==="manual" ? "manuell" : "geschätzt"} (in Settings umstellbar). Gesamtgewicht: <b>${fmt(biomass/1000,2)} kg</b>.</p>
       <div class="list">
         ${list.length? list.map(k=>koiItem(k)).join("") : `<div class="item"><div class="item__title">Noch keine Koi</div><div class="item__meta">Füge Koi hinzu, um Empfehlungen zu berechnen.</div></div>`}
       </div>
@@ -243,6 +366,7 @@ function koiItem(k){
       </div>
       ${k.note? `<div class="item__meta">${escapeHtml(k.note)}</div>`:""}
       <div class="item__actions">
+        <button class="btn" data-act="koiPhotos" data-id="${k.id}">📸 Doku</button>
         <button class="btn" data-act="editKoi" data-id="${k.id}">Bearbeiten</button>
         <button class="btn danger" data-act="delKoi" data-id="${k.id}">Löschen</button>
       </div>
@@ -253,7 +377,7 @@ function koiItem(k){
 function viewCalc(){
   const ponds = state.ponds.slice().sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   const defaultTemp = ponds[0]?.temp_c ?? 18;
-  const biomass = totalBiomassG();
+  const biomass = totalWeightG();
   return `
     <section class="card">
       <div class="row space">
@@ -277,12 +401,33 @@ function viewCalc(){
 
       <div class="two">
         <div>
-          <div class="label">Biomasse</div>
+          <div class="label">Gesamtgewicht</div>
           <div class="badge">≈ ${fmt(biomass/1000,2)} kg</div>
         </div>
         <div>
           <div class="label">Futtertyp</div>
-          <input class="input" id="calcFood" placeholder="z.B. ${state.settings.defaultFood}" value="${escapeHtml(state.settings.defaultFood||"")}">
+          <select class="input" id="calcFood">
+            ${state.foods
+              .slice()
+              .sort((a,b)=>(a.name||"").localeCompare(b.name||""))
+              .map(f=>`<option value="${f.id}" ${f.name===state.settings.defaultFood?"selected":""}>${escapeHtml(f.name)}</option>`)
+              .join("")}
+            <option value="__custom">Eigene Eingabe…</option>
+          </select>
+          <input class="input" id="calcFoodCustom" style="margin-top:8px; display:none" placeholder="z.B. ${state.settings.defaultFood}" value="">
+        </div>
+      </div>
+
+      <div class="two">
+        <div>
+          <div class="label">Fütterungsziel</div>
+          <select class="input" id="calcGoal">
+            ${GOALS.map(g=>`<option value="${g}" ${g===state.settings.defaultGoal?"selected":""}>${escapeHtml(g)}</option>`).join("")}
+          </select>
+        </div>
+        <div>
+          <div class="label">Futter‑Tipp nach Temperatur</div>
+          <div class="badge" id="calcFoodHint">—</div>
         </div>
       </div>
 
@@ -297,7 +442,9 @@ function viewCalc(){
       </div>
 
       <div class="row" style="margin-top:10px">
+        <button class="btn" data-act="split2">Auf 2 Fütterungen</button>
         <button class="btn" data-act="split3">Auf 3 Fütterungen</button>
+        <button class="btn" data-act="split4">Auf 4 Fütterungen</button>
         <button class="btn" data-act="split5">Auf 5 Fütterungen</button>
         <button class="btn primary" data-act="logFromCalc">+ ins Logbuch</button>
       </div>
@@ -322,14 +469,74 @@ function viewLog(){
   `;
 }
 
+function viewStats(){
+  const logs = state.logs.slice().sort((a,b)=>new Date(a.at)-new Date(b.at));
+  const totalG = logs.reduce((a,l)=>a + (Number(l.amount_g)||0), 0);
+  const totalCost = logs.reduce((a,l)=>a + (Number(l.cost_eur)||0), 0);
+
+  // last 14 days avg consumption
+  const now = Date.now();
+  const day = 24*60*60*1000;
+  const from = now - 14*day;
+  const recent = logs.filter(l=>Date.parse(l.at||"")>=from);
+  const recentG = recent.reduce((a,l)=>a + (Number(l.amount_g)||0), 0);
+  const avgPerDay = recent.length ? (recentG / 14) : 0;
+
+  // stock forecast: sum of remaining food amounts from foods? not tracked; use manual stock in foods (stock_g)
+  const stockG = (state.foods||[]).reduce((a,f)=>a + (Number(f.stock_g)||0), 0);
+  const daysLeft = (avgPerDay>0 && stockG>0) ? Math.floor(stockG/avgPerDay) : null;
+
+  // growth vs feed: use koiPhotos with length/weight and dates.
+  const growth = buildGrowthSummary();
+
+  return `
+    <div class="grid">
+      <section class="card">
+        <div class="row space">
+          <h2>Auswertung</h2>
+          <div class="row">
+            <button class="btn" data-act="manageFoods">Futtersorten</button>
+            <button class="btn" data-act="manageReminders">Erinnerungen</button>
+          </div>
+        </div>
+
+        <div class="kpi">
+          <div class="kpi__item"><div class="kpi__label">Futter gesamt</div><div class="kpi__value">${fmt(totalG/1000,2)} kg</div></div>
+          <div class="kpi__item"><div class="kpi__label">Kosten gesamt</div><div class="kpi__value">${fmt(totalCost,2)} €</div></div>
+          <div class="kpi__item"><div class="kpi__label">Ø / Tag (14T)</div><div class="kpi__value">${fmt(avgPerDay,0)} g</div></div>
+          <div class="kpi__item"><div class="kpi__label">Futter reicht</div><div class="kpi__value">${daysLeft===null?"—":`${daysLeft} Tage`}</div></div>
+        </div>
+
+        <hr class="sep"/>
+
+        <h3>Wachstum vs. Futtermenge</h3>
+        ${growth.html}
+        <p class="muted">Tipp: In der Koi‑Doku (📸) kannst du Fotos + Länge/Gewicht mit Datum speichern. Daraus entsteht diese Übersicht.</p>
+      </section>
+
+      <aside class="card">
+        <h3>Wasserwerte (letzte Einträge)</h3>
+        ${renderWaterSummary()}
+        <hr class="sep"/>
+        <h3>Prognose</h3>
+        <p>Die Prognose nutzt deinen Verbrauch der letzten 14 Tage (Ø/Tag) und den hinterlegten Lagerbestand (g) je Futtersorte.</p>
+        <p class="muted">Lagerbestand kannst du bei <b>Futtersorten</b> eintragen.</p>
+      </aside>
+    </div>
+  `;
+}
+
 function logItem(l){
   const pond = l.pondId ? (state.ponds.find(p=>p.id===l.pondId)?.name || "Teich") : "";
+  const cost = Number(l.cost_eur);
+  const costStr = Number.isFinite(cost) && cost>0 ? ` • ${fmt(cost,2)} €` : "";
+  const goalStr = l.goal ? ` • ${escapeHtml(l.goal)}` : "";
   return `
     <div class="item">
       <div class="row space">
         <div>
           <div class="item__title">📝 ${new Date(l.at).toLocaleString("de-DE")}</div>
-          <div class="item__meta">${fmt(l.amount_g,0)} g • ${escapeHtml(l.food || state.settings.defaultFood || "Futter")}${pond? " • "+escapeHtml(pond):""}</div>
+          <div class="item__meta">${fmt(l.amount_g,0)} g • ${escapeHtml(l.food || state.settings.defaultFood || "Futter")}${pond? " • "+escapeHtml(pond):""}${goalStr}${costStr}</div>
         </div>
         <span class="badge">${l.id.slice(0,6)}</span>
       </div>
@@ -361,10 +568,17 @@ function bindViewActions(){
         if(act==="delLog") return deleteLog(id);
 
         if(act==="calcNow") return calcNow();
+        if(act==="split2") return splitN(2);
         if(act==="split3") return splitN(3);
+        if(act==="split4") return splitN(4);
         if(act==="split5") return splitN(5);
         if(act==="logFromCalc") return logFromCalc();
         if(act==="openEngineInfo") return engineInfo();
+
+        if(act==="manageFoods") return openFoodsManager();
+        if(act==="manageReminders") return openRemindersManager();
+        if(act==="pondWater") return openWaterLogs(id);
+        if(act==="koiPhotos") return openKoiPhotos(id);
       }catch(err){
         console.error(err);
         toast(err.message || "Fehler");
@@ -382,6 +596,21 @@ function bindViewActions(){
       if(p && p.temp_c !== undefined) $("#calcTemp").value = p.temp_c;
       calcNow(true);
     });
+
+    const foodSel = $("#calcFood");
+    const foodCustom = $("#calcFoodCustom");
+    const goalSel = $("#calcGoal");
+    const updateFoodUi = ()=>{
+      const v = foodSel.value;
+      const isCustom = v === "__custom";
+      foodCustom.style.display = isCustom ? "block" : "none";
+      calcNow(true);
+    };
+    foodSel?.addEventListener("change", updateFoodUi);
+    foodCustom?.addEventListener("input", ()=>calcNow(true));
+    goalSel?.addEventListener("change", ()=>calcNow(true));
+    updateFoodUi();
+
     calcNow(true);
   }
 }
@@ -393,7 +622,7 @@ function engineInfo(){
       <p><b>Wichtig:</b> Die Formel ist ein konservativer Richtwert (kein Tierarzt‑Tool).</p>
       <p>Schritte:</p>
       <ul>
-        <li>Biomasse = Summe der Koi‑Gewichte. (Gewicht entweder manuell oder aus Länge geschätzt.)</li>
+        <li>Gesamtgewicht = Summe der Koi‑Gewichte. (Gewicht entweder manuell oder aus Länge geschätzt.)</li>
         <li>Temperatur → Futter‑Prozent/Tag (sehr grob):</li>
       </ul>
       <div class="item">
@@ -418,6 +647,15 @@ function calcNow(silent=false){
     const pct = recPercentByTemp(t)*100;
     out.innerHTML = `<b>${fmt(rec,0)} g</b> pro Tag <span class="badge">${fmt(pct,2)}%</span>`;
   }
+
+  // Food hint
+  const goal = $("#calcGoal")?.value || state.settings.defaultGoal || "Erhalt";
+  const hint = $("#calcFoodHint");
+  if(hint){
+    const rf = recommendFoodByTempAndGoal(t, goal);
+    hint.textContent = rf ? rf.name : "—";
+  }
+
   if(!silent) toast("Berechnet");
 }
 
@@ -430,7 +668,19 @@ function splitN(n){
 function logFromCalc(){
   const t = Number($("#calcTemp")?.value ?? 18);
   const amount = Math.round(recommendedFeedGPerDay(t));
-  modalLog({ amount_g: amount, food: $("#calcFood")?.value || state.settings.defaultFood, pondId: $("#calcPond")?.value || "" });
+  const goal = $("#calcGoal")?.value || state.settings.defaultGoal || "Erhalt";
+  const foodSel = $("#calcFood")?.value;
+  const custom = $("#calcFoodCustom")?.value?.trim();
+  const foodId = (foodSel && foodSel !== "__custom") ? foodSel : "";
+  const foodName = (foodSel === "__custom") ? (custom || state.settings.defaultFood) : (state.foods.find(f=>f.id===foodSel)?.name || state.settings.defaultFood);
+  modalLog({
+    amount_g: amount,
+    foodId,
+    food: foodName,
+    goal,
+    temp_c: t,
+    pondId: $("#calcPond")?.value || ""
+  });
 }
 
 function modalPond(existing=null){
@@ -575,8 +825,20 @@ async function deleteKoi(id, fromModal=false){
 
 function modalLog(existing=null){
   const ponds = state.ponds.slice().sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-  const l = existing || { id: uid(), at: new Date().toISOString(), amount_g:"", food: state.settings.defaultFood, pondId:"", note:"" };
+  const l = existing || {
+    id: uid(),
+    at: new Date().toISOString(),
+    amount_g:"",
+    foodId: "",
+    food: state.settings.defaultFood,
+    goal: state.settings.defaultGoal || "Erhalt",
+    temp_c: state.ponds[0]?.temp_c ?? "",
+    pondId:"",
+    note:"",
+    cost_eur: ""
+  };
   const dtLocal = isoToLocalInput(l.at);
+  const foods = state.foods.slice().sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   openModal({
     title: existing ? "Eintrag bearbeiten" : "Eintrag hinzufügen",
     bodyHTML: `
@@ -593,7 +855,12 @@ function modalLog(existing=null){
       <div class="two">
         <div>
           <div class="label">Futter</div>
-          <input class="input" id="lFood" value="${escapeAttr(l.food||"")}" placeholder="z.B. ${state.settings.defaultFood}">
+          <select class="input" id="lFoodId">
+            <option value="">(Text / Standard)</option>
+            ${foods.map(f=>`<option value="${f.id}" ${f.id===l.foodId?"selected":""}>${escapeHtml(f.name)}${(Number.isFinite(Number(f.price_eur_per_kg))?` • ${fmt(f.price_eur_per_kg,2)} €/kg`:"")}</option>`).join("")}
+          </select>
+          <input class="input" id="lFood" style="margin-top:8px" value="${escapeAttr(l.food||"")}" placeholder="z.B. ${state.settings.defaultFood}">
+          <div class="item__meta" id="lFoodMeta">—</div>
         </div>
         <div>
           <div class="label">Teich (optional)</div>
@@ -601,6 +868,31 @@ function modalLog(existing=null){
             <option value="">—</option>
             ${ponds.map(p=>`<option value="${p.id}" ${p.id===l.pondId?"selected":""}>${escapeHtml(p.name||"Teich")}</option>`).join("")}
           </select>
+        </div>
+      </div>
+
+      <div class="two">
+        <div>
+          <div class="label">Fütterungsziel</div>
+          <select id="lGoal" class="input">
+            ${GOALS.map(g=>`<option value="${g}" ${g=== (l.goal||state.settings.defaultGoal)?"selected":""}>${escapeHtml(g)}</option>`).join("")}
+          </select>
+        </div>
+        <div>
+          <div class="label">Temperatur (°C) (optional)</div>
+          <input class="input" id="lTemp" type="number" step="0.1" value="${escapeAttr(l.temp_c)}" placeholder="z.B. 18.5">
+        </div>
+      </div>
+
+      <div class="two">
+        <div>
+          <div class="label">Kosten (auto) (€)</div>
+          <input class="input" id="lCost" type="number" step="0.01" value="${escapeAttr(l.cost_eur)}" placeholder="wird berechnet" />
+          <div class="item__meta">Wenn du einen Preis pro kg beim Futter hinterlegt hast, wird das automatisch berechnet – du kannst es trotzdem überschreiben.</div>
+        </div>
+        <div>
+          <div class="label">Hinweis</div>
+          <div class="badge" id="lHint">—</div>
         </div>
       </div>
       <div class="label">Notiz</div>
@@ -612,13 +904,71 @@ function modalLog(existing=null){
       <button class="btn primary" id="lSave">Speichern</button>
     `,
     onMount(){
+      const updFoodMeta = ()=>{
+        const fid = $("#lFoodId").value;
+        const f = state.foods.find(x=>x.id===fid);
+        const meta = $("#lFoodMeta");
+        if(!f){ meta.textContent = "—"; return; }
+        const parts = [];
+        if(Number.isFinite(Number(f.protein))) parts.push(`Protein ${fmt(f.protein,0)}%`);
+        if(Number.isFinite(Number(f.fat))) parts.push(`Fett ${fmt(f.fat,0)}%`);
+        if(Number.isFinite(Number(f.price_eur_per_kg))) parts.push(`${fmt(f.price_eur_per_kg,2)} €/kg`);
+        if(Number.isFinite(Number(f.temp_min_c)) || Number.isFinite(Number(f.temp_max_c))){
+          const a = Number.isFinite(Number(f.temp_min_c)) ? fmt(f.temp_min_c,0) : "?";
+          const b = Number.isFinite(Number(f.temp_max_c)) ? fmt(f.temp_max_c,0) : "?";
+          parts.push(`Temp ${a}–${b}°C`);
+        }
+        meta.textContent = parts.join(" • ") || "—";
+      };
+
+      const autoCost = ()=>{
+        const amt = Number($("#lAmt").value);
+        const fid = $("#lFoodId").value;
+        const f = state.foods.find(x=>x.id===fid);
+        const costEl = $("#lCost");
+        const hintEl = $("#lHint");
+        const t = Number($("#lTemp").value);
+        const goal = $("#lGoal").value;
+
+        const rf = recommendFoodByTempAndGoal(t, goal);
+        hintEl.textContent = rf ? `Tipp: ${rf.name}` : "—";
+
+        // only auto-fill if empty or matches previous auto value
+        if(!f || !Number.isFinite(Number(f.price_eur_per_kg)) || !Number.isFinite(amt)) return;
+        const cost = (amt/1000) * Number(f.price_eur_per_kg);
+        if(!costEl.value || costEl.dataset.auto === "1"){
+          costEl.value = String(Math.round(cost*100)/100);
+          costEl.dataset.auto = "1";
+        }
+      };
+
+      $("#lFoodId").addEventListener("change", ()=>{
+        const fid = $("#lFoodId").value;
+        const f = state.foods.find(x=>x.id===fid);
+        if(f){
+          $("#lFood").value = f.name;
+        }
+        updFoodMeta();
+        autoCost();
+      });
+      $("#lAmt").addEventListener("input", autoCost);
+      $("#lTemp").addEventListener("input", autoCost);
+      $("#lGoal").addEventListener("change", autoCost);
+      $("#lCost").addEventListener("input", ()=>{ $("#lCost").dataset.auto = "0"; });
+      updFoodMeta();
+      autoCost();
+
       $("#lCancel").addEventListener("click", closeModal);
       $("#lSave").addEventListener("click", async ()=>{
         const upd = {
           id: l.id,
           at: localInputToIso($("#lAt").value) || new Date().toISOString(),
           amount_g: num($("#lAmt").value),
+          foodId: $("#lFoodId").value || "",
           food: $("#lFood").value.trim() || state.settings.defaultFood,
+          goal: $("#lGoal").value || state.settings.defaultGoal || "Erhalt",
+          temp_c: num($("#lTemp").value),
+          cost_eur: num($("#lCost").value),
           pondId: $("#lPond").value || "",
           note: $("#lNote").value.trim()
         };
@@ -676,6 +1026,574 @@ function localInputToIso(v){
 $("#btnSettings").addEventListener("click", ()=>openSettings());
 $("#btnSync").addEventListener("click", ()=>openDataTools());
 
+function openFoodsManager(){
+  const foods = state.foods.slice().sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  openModal({
+    title: "Futtersorten",
+    bodyHTML: `
+      <p>Hier kannst du Futtersorten inkl. Nährwerte, Temperatur‑Bereich, Preis und Lagerbestand hinterlegen.</p>
+      <div class="list">
+        ${foods.map(f=>`
+          <div class="item">
+            <div class="row space">
+              <div>
+                <div class="item__title">🍽️ ${escapeHtml(f.name||"Futter")}</div>
+                <div class="item__meta">
+                  ${Number.isFinite(Number(f.protein))?`Protein ${fmt(f.protein,0)}%`:""}
+                  ${Number.isFinite(Number(f.fat))?` • Fett ${fmt(f.fat,0)}%`:""}
+                  ${Number.isFinite(Number(f.price_eur_per_kg))?` • ${fmt(f.price_eur_per_kg,2)} €/kg`:""}
+                  ${(Number.isFinite(Number(f.temp_min_c))||Number.isFinite(Number(f.temp_max_c)))?` • Temp ${fmt(f.temp_min_c||"?",0)}–${fmt(f.temp_max_c||"?",0)}°C`:""}
+                  ${Number.isFinite(Number(f.stock_g))?` • Lager ${fmt(f.stock_g,0)} g`:""}
+                </div>
+              </div>
+              <span class="badge">${f.id.slice(0,6)}</span>
+            </div>
+            <div class="item__actions">
+              <button class="btn" data-act="editFood" data-id="${f.id}">Bearbeiten</button>
+              <button class="btn danger" data-act="delFood" data-id="${f.id}">Löschen</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary" id="addFood">+ Futtersorte</button>
+      </div>
+    `,
+    footHTML: `<button class="btn primary" id="close">Fertig</button>`,
+    onMount(){
+      $("#close").addEventListener("click", closeModal);
+      $("#addFood").addEventListener("click", ()=>modalFood());
+      // bind dynamic actions
+      $$('[data-act="editFood"]').forEach(b=>b.addEventListener("click", ()=>modalFood(state.foods.find(x=>x.id===b.dataset.id))));
+      $$('[data-act="delFood"]').forEach(b=>b.addEventListener("click", ()=>deleteFood(b.dataset.id)));
+    }
+  });
+}
+
+function modalFood(existing=null){
+  const f = existing || { id: uid(), name:"", protein:"", fat:"", price_eur_per_kg:"", stock_g:"", temp_min_c:"", temp_max_c:"", tags:["Erhalt"] };
+  openModal({
+    title: existing ? "Futtersorte bearbeiten" : "Futtersorte hinzufügen",
+    bodyHTML: `
+      <div class="label">Name</div>
+      <input class="input" id="fName" value="${escapeAttr(f.name)}" placeholder="z.B. Allround">
+      <div class="two">
+        <div>
+          <div class="label">Protein (%)</div>
+          <input class="input" id="fProt" type="number" step="1" value="${escapeAttr(f.protein)}">
+        </div>
+        <div>
+          <div class="label">Fett (%)</div>
+          <input class="input" id="fFat" type="number" step="1" value="${escapeAttr(f.fat)}">
+        </div>
+      </div>
+      <div class="two">
+        <div>
+          <div class="label">Preis (€/kg)</div>
+          <input class="input" id="fPrice" type="number" step="0.01" value="${escapeAttr(f.price_eur_per_kg)}">
+        </div>
+        <div>
+          <div class="label">Lagerbestand (g)</div>
+          <input class="input" id="fStock" type="number" step="1" value="${escapeAttr(f.stock_g)}" placeholder="z.B. 2500">
+        </div>
+      </div>
+      <div class="two">
+        <div>
+          <div class="label">Temp min (°C)</div>
+          <input class="input" id="fTmin" type="number" step="1" value="${escapeAttr(f.temp_min_c)}">
+        </div>
+        <div>
+          <div class="label">Temp max (°C)</div>
+          <input class="input" id="fTmax" type="number" step="1" value="${escapeAttr(f.temp_max_c)}">
+        </div>
+      </div>
+      <div class="label">Ziele (für Empfehlungen)</div>
+      <div class="row" style="flex-wrap:wrap; gap:8px">
+        ${GOALS.map(g=>{
+          const checked = (Array.isArray(f.tags)?f.tags:[]).includes(g);
+          return `<label class="badge" style="cursor:pointer"><input type="checkbox" class="fTag" value="${escapeAttr(g)}" ${checked?"checked":""}/> ${escapeHtml(g)}</label>`;
+        }).join("")}
+      </div>
+    `,
+    footHTML: `
+      ${existing ? `<button class="btn danger" id="fDelete">Löschen</button>` : `<span></span>`}
+      <button class="btn" id="fCancel">Abbrechen</button>
+      <button class="btn primary" id="fSave">Speichern</button>
+    `,
+    onMount(){
+      $("#fCancel").addEventListener("click", closeModal);
+      $("#fSave").addEventListener("click", async ()=>{
+        const tags = $$(".fTag").filter(x=>x.checked).map(x=>x.value);
+        const upd = {
+          id: f.id,
+          name: $("#fName").value.trim() || "Futter",
+          protein: num($("#fProt").value),
+          fat: num($("#fFat").value),
+          price_eur_per_kg: num($("#fPrice").value),
+          stock_g: num($("#fStock").value),
+          temp_min_c: num($("#fTmin").value),
+          temp_max_c: num($("#fTmax").value),
+          tags
+        };
+        await put(state.db, "foods", upd);
+        await loadAll();
+        toast("Futter gespeichert");
+        openFoodsManager();
+      });
+      if(existing){
+        $("#fDelete").addEventListener("click", ()=>deleteFood(existing.id, true));
+      }
+    }
+  });
+}
+
+async function deleteFood(id, fromModal=false){
+  const f = state.foods.find(x=>x.id===id);
+  if(!confirm(`Futtersorte "${f?.name||"Futter"}" wirklich löschen?`)) return;
+  await del(state.db, "foods", id);
+  await loadAll();
+  if(fromModal) closeModal();
+  toast("Futter gelöscht");
+  openFoodsManager();
+}
+
+function openRemindersManager(){
+  const rems = (state.reminders||[]).slice().sort((a,b)=>new Date(a.next_at)-new Date(b.next_at));
+  openModal({
+    title: "Erinnerungen",
+    bodyHTML: `
+      <p>Automatische Erinnerungen laufen lokal. Wenn du Browser‑Benachrichtigungen erlaubst, bekommst du einen Ping, sobald die App geöffnet ist und etwas fällig wird.</p>
+      <div class="row" style="margin-bottom:10px">
+        <button class="btn" id="reqNotif">🔔 Benachrichtigungen aktivieren</button>
+      </div>
+      <div class="list">
+        ${rems.map(r=>`
+          <div class="item">
+            <div class="row space">
+              <div>
+                <div class="item__title">${isReminderDue(r)?"⏰":"🔔"} ${escapeHtml(r.name||"Erinnerung")}</div>
+                <div class="item__meta">alle ${fmt(r.every_days,0)} Tage • nächstes: ${r.next_at?new Date(r.next_at).toLocaleDateString("de-DE"):"—"}</div>
+              </div>
+              <label class="badge" style="cursor:pointer">
+                <input type="checkbox" class="rEnabled" data-id="${r.id}" ${r.enabled?"checked":""} /> aktiv
+              </label>
+            </div>
+            <div class="two" style="margin-top:8px">
+              <div>
+                <div class="label">Intervall (Tage)</div>
+                <input class="input rEvery" data-id="${r.id}" type="number" step="1" value="${escapeAttr(r.every_days)}" />
+              </div>
+              <div>
+                <div class="label">Nächstes Datum</div>
+                <input class="input rNext" data-id="${r.id}" type="date" value="${r.next_at?new Date(r.next_at).toISOString().slice(0,10):""}" />
+              </div>
+            </div>
+            <div class="item__actions">
+              <button class="btn" data-act="doneRem" data-id="${r.id}">Erledigt</button>
+              <button class="btn danger" data-act="delRem" data-id="${r.id}">Löschen</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary" id="addRem">+ Erinnerung</button>
+      </div>
+    `,
+    footHTML: `
+      <button class="btn" id="save">Speichern</button>
+      <button class="btn primary" id="close">Fertig</button>
+    `,
+    onMount(){
+      $("#close").addEventListener("click", ()=>{ closeModal(); render(); });
+      $("#save").addEventListener("click", saveRemindersFromUI);
+      $("#addRem").addEventListener("click", ()=>modalReminder());
+      $("#reqNotif").addEventListener("click", async ()=>{
+        if(!("Notification" in window)) return toast("Nicht unterstützt");
+        const p = await Notification.requestPermission();
+        toast(p==="granted"?"Ok – Benachrichtigungen aktiv":"Nicht erlaubt");
+      });
+      $$('[data-act="doneRem"]').forEach(b=>b.addEventListener("click", async ()=>{
+        const r = state.reminders.find(x=>x.id===b.dataset.id);
+        if(!r) return;
+        await bumpReminder(r);
+        toast("Erledigt");
+        openRemindersManager();
+      }));
+      $$('[data-act="delRem"]').forEach(b=>b.addEventListener("click", ()=>deleteReminder(b.dataset.id)));
+    }
+  });
+}
+
+async function saveRemindersFromUI(){
+  const enabledEls = $$(".rEnabled");
+  const everyEls = $$(".rEvery");
+  const nextEls = $$(".rNext");
+  const byId = new Map((state.reminders||[]).map(r=>[r.id,r]));
+  for(const el of enabledEls){
+    const r = byId.get(el.dataset.id);
+    if(r) r.enabled = el.checked;
+  }
+  for(const el of everyEls){
+    const r = byId.get(el.dataset.id);
+    if(r) r.every_days = clamp(Number(el.value||7), 1, 365);
+  }
+  for(const el of nextEls){
+    const r = byId.get(el.dataset.id);
+    if(r && el.value){
+      const d = new Date(el.value + "T09:00:00");
+      r.next_at = d.toISOString();
+    }
+  }
+  for(const r of byId.values()) await put(state.db, "reminders", r);
+  await loadAll();
+  toast("Gespeichert");
+}
+
+function modalReminder(existing=null){
+  const r = existing || { id: uid(), name:"", every_days:7, next_at: new Date(Date.now()+7*24*60*60*1000).toISOString(), enabled:true };
+  openModal({
+    title: existing?"Erinnerung bearbeiten":"Erinnerung hinzufügen",
+    bodyHTML:`
+      <div class="label">Name</div>
+      <input class="input" id="rName" value="${escapeAttr(r.name)}" placeholder="z.B. Wasserwechsel">
+      <div class="two">
+        <div>
+          <div class="label">Intervall (Tage)</div>
+          <input class="input" id="rEvery" type="number" step="1" value="${escapeAttr(r.every_days)}" />
+        </div>
+        <div>
+          <div class="label">Nächstes Datum</div>
+          <input class="input" id="rNext" type="date" value="${r.next_at?new Date(r.next_at).toISOString().slice(0,10):""}" />
+        </div>
+      </div>
+      <label class="badge" style="cursor:pointer"><input type="checkbox" id="rEnabled" ${r.enabled?"checked":""}/> aktiv</label>
+    `,
+    footHTML:`
+      <button class="btn" id="rCancel">Abbrechen</button>
+      <button class="btn primary" id="rSave">Speichern</button>
+    `,
+    onMount(){
+      $("#rCancel").addEventListener("click", closeModal);
+      $("#rSave").addEventListener("click", async ()=>{
+        const d = $("#rNext").value ? new Date($("#rNext").value + "T09:00:00") : new Date();
+        const upd = {
+          id: r.id,
+          name: $("#rName").value.trim() || "Erinnerung",
+          every_days: clamp(Number($("#rEvery").value||7), 1, 365),
+          next_at: d.toISOString(),
+          enabled: $("#rEnabled").checked
+        };
+        await put(state.db, "reminders", upd);
+        await loadAll();
+        toast("Erinnerung gespeichert");
+        openRemindersManager();
+      });
+    }
+  });
+}
+
+async function deleteReminder(id){
+  if(!confirm("Erinnerung wirklich löschen?")) return;
+  await del(state.db, "reminders", id);
+  await loadAll();
+  toast("Gelöscht");
+  openRemindersManager();
+}
+
+function openKoiPhotos(koiId){
+  const k = state.koi.find(x=>x.id===koiId);
+  if(!k) return;
+  const photos = (state.koiPhotos||[])
+    .filter(p=>p.koiId===koiId)
+    .slice()
+    .sort((a,b)=>new Date(b.at)-new Date(a.at));
+  openModal({
+    title: `📸 Doku – ${k.name||"Koi"}`,
+    bodyHTML: `
+      <p>Fotos & Messwerte für Wachstum/Entwicklung.</p>
+      <div class="row" style="margin-bottom:10px">
+        <label class="btn primary" for="phFile" style="cursor:pointer">+ Foto hinzufügen</label>
+        <input id="phFile" type="file" accept="image/*" hidden>
+      </div>
+      <div class="list">
+        ${photos.length ? photos.map(p=>`
+          <div class="item">
+            <div class="row space">
+              <div>
+                <div class="item__title">${new Date(p.at).toLocaleDateString("de-DE")}</div>
+                <div class="item__meta">${p.length_cm?fmt(p.length_cm,1)+" cm":""}${p.weight_g?" • "+fmt(p.weight_g,0)+" g":""}</div>
+              </div>
+              <button class="btn danger" data-act="delPhoto" data-id="${p.id}">Löschen</button>
+            </div>
+            ${p.dataUrl ? `<img src="${p.dataUrl}" alt="Koi Foto" style="width:100%; border-radius:14px; margin-top:10px"/>` : ""}
+          </div>
+        `).join("") : `<div class="item"><div class="item__title">Noch keine Fotos</div><div class="item__meta">Füge das erste Bild hinzu.</div></div>`}
+      </div>
+    `,
+    footHTML: `<button class="btn primary" id="close">Fertig</button>`,
+    onMount(){
+      $("#close").addEventListener("click", closeModal);
+      $("#phFile").addEventListener("change", async (e)=>{
+        const file = e.target.files?.[0];
+        if(!file) return;
+        const dataUrl = await fileToDataUrl(file);
+        modalPhotoMeta({ koiId, dataUrl });
+      });
+      $$('[data-act="delPhoto"]').forEach(b=>b.addEventListener("click", ()=>deletePhoto(b.dataset.id, koiId)));
+    }
+  });
+}
+
+function modalPhotoMeta({koiId, dataUrl}){
+  openModal({
+    title: "Foto – Details",
+    bodyHTML: `
+      <div class="label">Datum</div>
+      <input class="input" id="phDate" type="date" value="${new Date().toISOString().slice(0,10)}" />
+      <div class="two">
+        <div>
+          <div class="label">Länge (cm) (optional)</div>
+          <input class="input" id="phLen" type="number" step="0.1" placeholder="z.B. 45" />
+        </div>
+        <div>
+          <div class="label">Gewicht (g) (optional)</div>
+          <input class="input" id="phW" type="number" step="1" placeholder="z.B. 1300" />
+        </div>
+      </div>
+      <img src="${dataUrl}" alt="Vorschau" style="width:100%; border-radius:14px; margin-top:10px" />
+    `,
+    footHTML: `
+      <button class="btn" id="c">Abbrechen</button>
+      <button class="btn primary" id="s">Speichern</button>
+    `,
+    onMount(){
+      $("#c").addEventListener("click", closeModal);
+      $("#s").addEventListener("click", async ()=>{
+        const d = $("#phDate").value ? new Date($("#phDate").value + "T12:00:00") : new Date();
+        const rec = {
+          id: uid(),
+          koiId,
+          at: d.toISOString(),
+          length_cm: num($("#phLen").value),
+          weight_g: num($("#phW").value),
+          dataUrl
+        };
+        await put(state.db, "koiPhotos", rec);
+        await loadAll();
+        toast("Foto gespeichert");
+        openKoiPhotos(koiId);
+      });
+    }
+  });
+}
+
+async function deletePhoto(photoId, koiId){
+  if(!confirm("Foto wirklich löschen?")) return;
+  await del(state.db, "koiPhotos", photoId);
+  await loadAll();
+  toast("Gelöscht");
+  openKoiPhotos(koiId);
+}
+
+function openWaterLogs(pondId){
+  const p = state.ponds.find(x=>x.id===pondId);
+  if(!p) return;
+  const logs = (state.waterLogs||[])
+    .filter(w=>w.pondId===pondId)
+    .slice()
+    .sort((a,b)=>new Date(b.at)-new Date(a.at));
+  openModal({
+    title: `💧 Wasserwerte – ${p.name||"Teich"}`,
+    bodyHTML: `
+      <div class="row space" style="margin-bottom:10px">
+        <p class="muted">Nitrit, Nitrat, pH, KH, GH, Sauerstoff – alles optional.</p>
+        <button class="btn primary" id="add">+ Eintrag</button>
+      </div>
+      <div class="list">
+        ${logs.length? logs.map(w=>`
+          <div class="item">
+            <div class="row space">
+              <div>
+                <div class="item__title">${new Date(w.at).toLocaleDateString("de-DE")}</div>
+                <div class="item__meta">
+                  ${waterLine(w)}
+                </div>
+              </div>
+              <button class="btn danger" data-act="delWater" data-id="${w.id}">Löschen</button>
+            </div>
+          </div>
+        `).join("") : `<div class="item"><div class="item__title">Noch keine Wasserwerte</div><div class="item__meta">Füge den ersten Mess‑Eintrag hinzu.</div></div>`}
+      </div>
+    `,
+    footHTML: `<button class="btn primary" id="close">Fertig</button>`,
+    onMount(){
+      $("#close").addEventListener("click", closeModal);
+      $("#add").addEventListener("click", ()=>modalWaterLog({pondId}));
+      $$('[data-act="delWater"]').forEach(b=>b.addEventListener("click", ()=>deleteWaterLog(b.dataset.id, pondId)));
+    }
+  });
+}
+
+function modalWaterLog({pondId}){
+  openModal({
+    title: "Wasserwerte eintragen",
+    bodyHTML: `
+      <div class="label">Datum</div>
+      <input class="input" id="wDate" type="date" value="${new Date().toISOString().slice(0,10)}" />
+      <div class="two">
+        <div><div class="label">Nitrit (mg/l)</div><input class="input" id="wNo2" type="number" step="0.01" /></div>
+        <div><div class="label">Nitrat (mg/l)</div><input class="input" id="wNo3" type="number" step="0.1" /></div>
+      </div>
+      <div class="two">
+        <div><div class="label">pH</div><input class="input" id="wPh" type="number" step="0.1" /></div>
+        <div><div class="label">Sauerstoff (mg/l)</div><input class="input" id="wO2" type="number" step="0.1" /></div>
+      </div>
+      <div class="two">
+        <div><div class="label">KH (°dH)</div><input class="input" id="wKh" type="number" step="0.1" /></div>
+        <div><div class="label">GH (°dH)</div><input class="input" id="wGh" type="number" step="0.1" /></div>
+      </div>
+      <div class="label">Notiz</div>
+      <textarea class="input" id="wNote" placeholder="optional"></textarea>
+    `,
+    footHTML: `
+      <button class="btn" id="c">Abbrechen</button>
+      <button class="btn primary" id="s">Speichern</button>
+    `,
+    onMount(){
+      $("#c").addEventListener("click", closeModal);
+      $("#s").addEventListener("click", async ()=>{
+        const d = $("#wDate").value ? new Date($("#wDate").value + "T12:00:00") : new Date();
+        const rec = {
+          id: uid(),
+          pondId,
+          at: d.toISOString(),
+          no2: num($("#wNo2").value),
+          no3: num($("#wNo3").value),
+          ph: num($("#wPh").value),
+          kh: num($("#wKh").value),
+          gh: num($("#wGh").value),
+          o2: num($("#wO2").value),
+          note: $("#wNote").value.trim()
+        };
+        await put(state.db, "waterLogs", rec);
+        await loadAll();
+        toast("Wasserwerte gespeichert");
+        openWaterLogs(pondId);
+      });
+    }
+  });
+}
+
+async function deleteWaterLog(id, pondId){
+  if(!confirm("Eintrag wirklich löschen?")) return;
+  await del(state.db, "waterLogs", id);
+  await loadAll();
+  toast("Gelöscht");
+  openWaterLogs(pondId);
+}
+
+function waterLine(w){
+  const parts = [];
+  if(w.no2!=="" && w.no2!==undefined) parts.push(`NO₂ ${fmt(w.no2,2)}`);
+  if(w.no3!=="" && w.no3!==undefined) parts.push(`NO₃ ${fmt(w.no3,0)}`);
+  if(w.ph!=="" && w.ph!==undefined) parts.push(`pH ${fmt(w.ph,1)}`);
+  if(w.kh!=="" && w.kh!==undefined) parts.push(`KH ${fmt(w.kh,0)}`);
+  if(w.gh!=="" && w.gh!==undefined) parts.push(`GH ${fmt(w.gh,0)}`);
+  if(w.o2!=="" && w.o2!==undefined) parts.push(`O₂ ${fmt(w.o2,1)}`);
+  return parts.join(" • ") || "—";
+}
+
+function renderWaterSummary(){
+  const byPond = new Map();
+  for(const w of (state.waterLogs||[])){
+    const pid = w.pondId || "";
+    const prev = byPond.get(pid);
+    if(!prev || new Date(w.at) > new Date(prev.at)) byPond.set(pid, w);
+  }
+  const items = Array.from(byPond.values())
+    .sort((a,b)=>new Date(b.at)-new Date(a.at))
+    .slice(0,4);
+  if(items.length===0) return `<p>Noch keine Wasserwerte erfasst.</p>`;
+  return `
+    <div class="list">
+      ${items.map(w=>{
+        const pond = state.ponds.find(p=>p.id===w.pondId)?.name || "Teich";
+        return `
+          <div class="item">
+            <div class="item__title">${escapeHtml(pond)} • ${new Date(w.at).toLocaleDateString("de-DE")}</div>
+            <div class="item__meta">${waterLine(w)}</div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function buildGrowthSummary(){
+  const rows = [];
+  for(const k of state.koi){
+    const ph = (state.koiPhotos||[])
+      .filter(p=>p.koiId===k.id && (p.length_cm || p.weight_g))
+      .slice()
+      .sort((a,b)=>new Date(a.at)-new Date(b.at));
+    if(ph.length < 2) continue;
+    const first = ph[0];
+    const last = ph[ph.length-1];
+    const dDays = Math.max(1, Math.round((new Date(last.at)-new Date(first.at))/(24*60*60*1000)));
+
+    // feed in same time window
+    const from = new Date(first.at).getTime();
+    const to = new Date(last.at).getTime();
+    const feedG = state.logs
+      .filter(l=>{ const t=new Date(l.at).getTime(); return t>=from && t<=to; })
+      .reduce((a,l)=>a + (Number(l.amount_g)||0), 0);
+
+    rows.push({
+      name: k.name||"Koi",
+      days: dDays,
+      lenStart: first.length_cm||"",
+      lenEnd: last.length_cm||"",
+      wStart: first.weight_g||"",
+      wEnd: last.weight_g||"",
+      feedG
+    });
+  }
+
+  if(rows.length===0){
+    return { html: `<p>Noch nicht genug Daten. Lege pro Koi mindestens <b>2 Doku‑Einträge</b> mit Messwerten an.</p>` };
+  }
+
+  const table = `
+    <div class="list">
+      ${rows.slice(0,6).map(r=>`
+        <div class="item">
+          <div class="row space">
+            <div>
+              <div class="item__title">🐟 ${escapeHtml(r.name)}</div>
+              <div class="item__meta">
+                Zeitraum: ${fmt(r.days,0)} Tage • Futter: ${fmt(r.feedG/1000,2)} kg
+              </div>
+              <div class="item__meta">
+                Länge: ${r.lenStart?fmt(r.lenStart,1):"—"} → ${r.lenEnd?fmt(r.lenEnd,1):"—"} cm • Gewicht: ${r.wStart?fmt(r.wStart,0):"—"} → ${r.wEnd?fmt(r.wEnd,0):"—"} g
+              </div>
+            </div>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+  return { html: table };
+}
+
+function fileToDataUrl(file){
+  return new Promise((res, rej)=>{
+    const fr = new FileReader();
+    fr.onload = ()=>res(fr.result);
+    fr.onerror = ()=>rej(fr.error);
+    fr.readAsDataURL(file);
+  });
+}
+
 function openSettings(){
   openModal({
     title: "Einstellungen",
@@ -711,6 +1629,19 @@ function openSettings(){
         <div class="label">Name</div>
         <input class="input" id="sFood" value="${escapeAttr(state.settings.defaultFood||"Allround")}" placeholder="Allround">
       </div>
+
+      <div class="item" style="margin-top:10px">
+        <div class="item__title">Standard‑Ziel</div>
+        <div class="label">Fütterungsziel</div>
+        <select id="sGoal" class="input">
+          ${GOALS.map(g=>`<option value="${g}" ${g===state.settings.defaultGoal?"selected":""}>${escapeHtml(g)}</option>`).join("")}
+        </select>
+      </div>
+
+      <div class="row" style="margin-top:10px">
+        <button class="btn" data-act="manageFoods">Futtersorten verwalten</button>
+        <button class="btn" data-act="manageReminders">Erinnerungen</button>
+      </div>
     `,
     footHTML: `
       <button class="btn" id="sCancel">Abbrechen</button>
@@ -723,6 +1654,7 @@ function openSettings(){
 state.settings.weightMode = $("#sWeightMode").value;
         state.settings.weightFactor = clamp(Number($("#sFactor").value || 0.012), 0.001, 0.05);
         state.settings.defaultFood = ($("#sFood").value || "Allround").trim();
+        state.settings.defaultGoal = $("#sGoal").value || "Erhalt";
 
         await saveSettings();
         closeModal();
@@ -730,6 +1662,10 @@ state.settings.weightMode = $("#sWeightMode").value;
         applyLockUI();
         render();
       });
+
+      // allow opening managers from settings modal
+      $$('[data-act="manageFoods"]').forEach(b=>b.addEventListener("click", openFoodsManager));
+      $$('[data-act="manageReminders"]').forEach(b=>b.addEventListener("click", openRemindersManager));
     }
   });
 }
@@ -860,9 +1796,13 @@ async function init(){
   state.db = await openDB();
   await loadSettings();
   await loadAll();
+  await ensureDefaults();
+  await loadAll();
   applyLockUI();
   render();
   await registerSW();
+
+  startReminderLoop();
 
   // Hide install button until available (except iOS – still show on wide screens)
   $("#btnInstall").style.display = "none";
