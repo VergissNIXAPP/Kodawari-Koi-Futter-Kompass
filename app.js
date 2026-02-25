@@ -9,11 +9,74 @@ const LOCK_PASSWORD = "koi"; // Nur hier im Code ändern
 const GOALS = [
   "Erhalt",
   "Wachstum",
-  "Konditionsaufbau",
+  "Konditionierung",
+  "Farbaufbau",
   "Schonfütterung",
-  "Farbentwicklung",
   "Frühjahr/Herbst",
+  "Winter",
 ];
+
+// Prozent‑Faktoren bezogen auf "Normal" (Mittelwert aus Min‑Max)
+const GOAL_RANGES = {
+  "Erhalt": { min: 70, max: 80 },
+  "Wachstum": { min: 100, max: 120 },
+  "Konditionierung": { min: 90, max: 100 },
+  "Farbaufbau": { min: 80, max: 100 },
+  "Schonfütterung": { min: 30, max: 50 },
+  "Frühjahr/Herbst": { min: 50, max: 70 },
+  "Winter": { min: 0, max: 20 },
+};
+
+function normalizeGoal(g){
+  const s = (g||"").trim();
+  if(!s) return "Erhalt";
+  // Backward‑compat mapping
+  if(s === "Konditionsaufbau") return "Konditionierung";
+  if(s === "Farbentwicklung") return "Farbaufbau";
+  return s;
+}
+
+function goalFactor(goal, tempC){
+  const g = normalizeGoal(goal);
+  const r = GOAL_RANGES[g] || GOAL_RANGES["Erhalt"];
+  const mid = (Number(r.min) + Number(r.max)) / 2; // percent
+  const t = Number(tempC);
+  // Winter: nur bei >8°C überhaupt füttern, sonst 0.
+  if(g === "Winter" && (!Number.isFinite(t) || t <= 8)) return 0;
+  // Unter 8°C generell 0 (egal welches Ziel)
+  if(Number.isFinite(t) && t < 8) return 0;
+  return mid / 100;
+}
+
+const PRESET_FOODS = [
+  // Nutramare (Auszug)
+  { id: "nutramare_koi360_basic_swim", brand:"Nutramare", name:"Koi360 Basic Swim", protein: 36.5, fat: 9.0, fiber: 1.29, ash: 10.30, temp_min_c: 12, temp_max_c: 28, tags:["Erhalt","Wachstum"] },
+  { id: "nutramare_koi360_sensitiv_swim", brand:"Nutramare", name:"Koi360 Sensitiv Swim", protein: 31.5, fat: 6.0, fiber: 1.55, ash: 8.90, temp_min_c: 10, temp_max_c: 26, tags:["Schonfütterung","Erhalt"] },
+  { id: "nutramare_koi360_swim", brand:"Nutramare", name:"Koi360 Swim", protein: 40.0, fat: 12.5, fiber: 1.50, ash: 11.34, temp_min_c: 14, temp_max_c: 30, tags:["Wachstum","Konditionierung"] },
+  { id: "nutramare_koi360_jumbo_swim", brand:"Nutramare", name:"Koi360 Jumbo Swim", protein: 40.0, fat: 12.5, fiber: 1.30, ash: 11.00, temp_min_c: 14, temp_max_c: 30, tags:["Wachstum","Konditionierung"] },
+
+  // Takazumi (Auszug)
+  { id: "takazumi_high_growth", brand:"Takazumi", name:"High Growth", protein: 45.0, fat: 12.0, fiber: 2.3, ash: 7.0, temp_min_c: 14, temp_max_c: 30, tags:["Wachstum","Konditionierung"] },
+  { id: "takazumi_gold_plus", brand:"Takazumi", name:"Gold Plus", protein: 35.0, fat: 4.0, fiber: 3.0, ash: 6.0, temp_min_c: 10, temp_max_c: 26, tags:["Erhalt","Farbaufbau"] },
+  { id: "takazumi_mix", brand:"Takazumi", name:"Mix", protein: 40.0, fat: 9.5, fiber: 2.4, ash: 6.5, temp_min_c: 10, temp_max_c: 30, tags:["Wachstum","Farbaufbau"] },
+  { id: "takazumi_easy", brand:"Takazumi", name:"Easy (auch Winter)" , protein: 33.0, fat: 6.0, fiber: 4.2, ash: 8.3, temp_min_c: 8, temp_max_c: 18, tags:["Schonfütterung","Frühjahr/Herbst","Winter"] },
+];
+
+async function addMissingFoods(presets){
+  const existing = new Set((state.foods||[]).map(f=>f.id));
+  for(const f of presets){
+    if(existing.has(f.id)) continue;
+    await put(state.db, "foods", f);
+    existing.add(f.id);
+  }
+  state.foods = await getAll(state.db, "foods");
+}
+
+function foodLabel(f){
+  const b = (f.brand||"").trim();
+  return b ? `${b} • ${f.name}` : (f.name||"Futter");
+}
+
 
 const state = {
   route: "dash",
@@ -101,10 +164,11 @@ function recPercentByTemp(tempC){
   return 0.010;
 }
 
-function recommendedFeedGPerDay(tempC){
+function recommendedFeedGPerDay(tempC, goal){
   const biomass = totalWeightG();
   const pct = recPercentByTemp(tempC);
-  return biomass * pct;
+  const gf = goalFactor(goal, tempC);
+  return biomass * pct * gf;
 }
 
 function recommendFoodByTempAndGoal(tempC, goal){
@@ -129,6 +193,25 @@ function recommendFoodByTempAndGoal(tempC, goal){
     return bs - as;
   });
   return pickFrom[0] || null;
+}
+
+function recommendFoodsByTempAndGoal(tempC, goal, limit=3){
+  const t = Number(tempC);
+  const g = normalizeGoal(goal);
+  if(!state.foods || state.foods.length===0) return [];
+  const scored = state.foods.map(f=>{
+    const min = Number(f.temp_min_c);
+    const max = Number(f.temp_max_c);
+    const okTemp = (Number.isFinite(min)? t >= min : true) && (Number.isFinite(max)? t <= max : true);
+    const tags = Array.isArray(f.tags) ? f.tags : [];
+    const sGoal = tags.includes(g) ? 3 : (tags.includes("Erhalt") ? 2 : (tags.length?1:0));
+    const sTemp = okTemp ? 3 : 0;
+    const sProt = Number(f.protein)||0;
+    const score = sTemp*10 + sGoal*5 + sProt/20;
+    return { f, score, okTemp, tags };
+  });
+  scored.sort((a,b)=>b.score-a.score);
+  return scored.filter(x=>x.okTemp || scored.filter(y=>y.okTemp).length===0).slice(0, limit).map(x=>x.f);
 }
 
 function nextDueReminder(){
@@ -196,17 +279,15 @@ async function loadAll(){
 }
 
 async function ensureDefaults(){
-  // Default food catalogue
-  if(!state.foods || state.foods.length === 0){
-    const defaults = [
-      { id: "food_allround", name: "Allround", protein: 35, fat: 6, price_eur_per_kg: 8.90, temp_min_c: 12, temp_max_c: 24, tags:["Erhalt","Wachstum"] },
-      { id: "food_wheatgerm", name: "Wheatgerm (kalt)", protein: 32, fat: 5, price_eur_per_kg: 9.90, temp_min_c: 6, temp_max_c: 15, tags:["Schonfütterung","Frühjahr/Herbst"] },
-      { id: "food_growth", name: "Growth (warm)", protein: 40, fat: 8, price_eur_per_kg: 11.90, temp_min_c: 18, temp_max_c: 28, tags:["Wachstum","Konditionsaufbau"] },
-      { id: "food_color", name: "Color", protein: 36, fat: 7, price_eur_per_kg: 10.90, temp_min_c: 16, temp_max_c: 26, tags:["Farbentwicklung"] },
-    ];
-    for(const f of defaults) await put(state.db, "foods", f);
-    state.foods = await getAll(state.db, "foods");
-  }
+  // Food catalogue: Basis + Presets (Nutramare/Takazumi) – ergänzt ohne deine eigenen Einträge zu überschreiben
+  const baseDefaults = [
+    { id: "food_allround", name: "Allround", protein: 35, fat: 6, price_eur_per_kg: 8.90, temp_min_c: 12, temp_max_c: 24, tags:["Erhalt","Wachstum"] },
+    { id: "food_wheatgerm", name: "Wheatgerm (kalt)", protein: 32, fat: 5, price_eur_per_kg: 9.90, temp_min_c: 6, temp_max_c: 15, tags:["Schonfütterung","Frühjahr/Herbst","Winter"] },
+    { id: "food_growth", name: "Growth (warm)", protein: 40, fat: 8, price_eur_per_kg: 11.90, temp_min_c: 18, temp_max_c: 28, tags:["Wachstum","Konditionierung"] },
+    { id: "food_color", name: "Color", protein: 36, fat: 7, price_eur_per_kg: 10.90, temp_min_c: 16, temp_max_c: 26, tags:["Farbaufbau"] },
+  ];
+  await addMissingFoods([...baseDefaults, ...PRESET_FOODS]);
+
 
   // Default reminders
   if(!state.reminders || state.reminders.length === 0){
@@ -252,7 +333,7 @@ function render(){
 function viewDash(){
   const k = deriveKpis();
   const temp = state.ponds[0]?.temp_c ?? 18;
-  const rec = recommendedFeedGPerDay(temp);
+  const rec = recommendedFeedGPerDay(temp, state.settings.defaultGoal);
   const recFood = recommendFoodByTempAndGoal(temp, state.settings.defaultGoal);
   const nextReminder = nextDueReminder();
   return `
@@ -266,8 +347,8 @@ function viewDash(){
           <div class="kpi__item"><div class="kpi__label">Empfehlung/Tag</div><div class="kpi__value">${fmt(rec,0)} g</div></div>
         </div>
         <div class="row" style="margin-top:8px">
-          <span class="badge">Ziel: ${escapeHtml(state.settings.defaultGoal||"Erhalt")}</span>
-          <span class="badge">Futter‑Tipp: ${escapeHtml(recFood?.name || state.settings.defaultFood || "—")}</span>
+          <span class="badge">Ziel: ${escapeHtml(state.settings.defaultGoal||"Erhalt")}</span> <span class="badge">Faktor: ${fmt(goalFactor(state.settings.defaultGoal, temp)*100,0)}%</span>
+          <span class="badge">Futter‑Tipp: ${escapeHtml(recFood ? foodLabel(recFood) : (state.settings.defaultFood || "—"))}</span>
           ${nextReminder ? `<span class="badge">🔔 Nächstes: ${escapeHtml(nextReminder.name)} • ${new Date(nextReminder.next_at).toLocaleDateString("de-DE")}</span>` : ``}
         </div>
         <hr class="sep"/>
@@ -428,6 +509,7 @@ function viewCalc(){
         <div>
           <div class="label">Futter‑Tipp nach Temperatur</div>
           <div class="badge" id="calcFoodHint">—</div>
+          <div class="muted" id="calcFoodHint2" style="margin-top:6px"></div>
         </div>
       </div>
 
@@ -623,7 +705,7 @@ function engineInfo(){
       <p>Schritte:</p>
       <ul>
         <li>Gesamtgewicht = Summe der Koi‑Gewichte. (Gewicht entweder manuell oder aus Länge geschätzt.)</li>
-        <li>Temperatur → Futter‑Prozent/Tag (sehr grob):</li>
+        <li>Temperatur → Futter‑Prozent/Tag (sehr grob) × Ziel‑Faktor (z.B. Wachstum 110%):</li>
       </ul>
       <div class="item">
         <div class="item__meta">
@@ -641,7 +723,8 @@ function engineInfo(){
 
 function calcNow(silent=false){
   const t = Number($("#calcTemp")?.value ?? 18);
-  const rec = recommendedFeedGPerDay(t);
+  const goal = normalizeGoal($("#calcGoal")?.value || state.settings.defaultGoal || "Erhalt");
+  const rec = recommendedFeedGPerDay(t, goal);
   const out = $("#calcOut");
   if(out){
     const pct = recPercentByTemp(t)*100;
@@ -649,11 +732,15 @@ function calcNow(silent=false){
   }
 
   // Food hint
-  const goal = $("#calcGoal")?.value || state.settings.defaultGoal || "Erhalt";
   const hint = $("#calcFoodHint");
   if(hint){
     const rf = recommendFoodByTempAndGoal(t, goal);
-    hint.textContent = rf ? rf.name : "—";
+    hint.innerHTML = rf ? `${escapeHtml(foodLabel(rf))} <span class="badge">${fmt(Number(rf.protein)||0,0)}% P</span> <span class="badge">${fmt(Number(rf.fat)||0,0)}% F</span>` : "—";
+    const alt = recommendFoodsByTempAndGoal(t, goal, 3).filter(x=>!rf || x.id!==rf.id);
+    const hint2 = $("#calcFoodHint2");
+    if(hint2){
+      hint2.innerHTML = alt.length ? (`Alternativen: ` + alt.map(a=>`${escapeHtml(foodLabel(a))} (${fmt(Number(a.protein)||0,0)}%P/${fmt(Number(a.fat)||0,0)}%F)`).join(' • ')) : '';
+    }
   }
 
   if(!silent) toast("Berechnet");
@@ -661,13 +748,14 @@ function calcNow(silent=false){
 
 function splitN(n){
   const t = Number($("#calcTemp")?.value ?? 18);
-  const rec = recommendedFeedGPerDay(t);
+  const goal = normalizeGoal($("#calcGoal")?.value || state.settings.defaultGoal || "Erhalt");
+  const rec = recommendedFeedGPerDay(t, goal);
   toast(`${fmt(rec/n,0)} g pro Fütterung (×${n})`);
 }
 
 function logFromCalc(){
   const t = Number($("#calcTemp")?.value ?? 18);
-  const amount = Math.round(recommendedFeedGPerDay(t));
+  const amount = Math.round(recommendedFeedGPerDay(t, goal));
   const goal = $("#calcGoal")?.value || state.settings.defaultGoal || "Erhalt";
   const foodSel = $("#calcFood")?.value;
   const custom = $("#calcFoodCustom")?.value?.trim();
