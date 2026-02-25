@@ -1,124 +1,74 @@
-import { openDB as idbOpenDB, getAll as idbGetAll, put as idbPut, del as idbDel, getMeta as idbGetMeta, setMeta as idbSetMeta, exportAll as idbExportAll, importAll as idbImportAll } from "./db.js";
+import { openDB, getAll, put, del, getMeta, setMeta, exportAll, importAll } from "./db.js";
 
-/* Storage backend: IndexedDB (default) with localStorage fallback */
-const LS_PREFIX = "kk_";
-const storage = {
-  backend: "idb", // "idb" | "ls"
-  async open(){
-    try{
-      const db = await idbOpenDB();
-      this.backend = "idb";
-      return db;
-    }catch(err){
-      console.warn("IndexedDB unavailable – falling back to localStorage", err);
-      this.backend = "ls";
-      return null;
-    }
-  },
-  _lsKey(store){ return `${LS_PREFIX}${store}`; },
-  _lsRead(store){
-    try{
-      const raw = localStorage.getItem(this._lsKey(store));
-      return raw ? JSON.parse(raw) : [];
-    }catch(e){
-      return [];
-    }
-  },
-  _lsWrite(store, arr){
-    try{ localStorage.setItem(this._lsKey(store), JSON.stringify(arr)); }catch(e){}
-  },
-  async getAll(db, store){
-    if(this.backend === "idb") return idbGetAll(db, store);
-    return this._lsRead(store);
-  },
-  async put(db, store, value){
-    if(this.backend === "idb") return idbPut(db, store, value);
-    const arr = this._lsRead(store);
-    const id = value && value.id !== undefined ? value.id : null;
-    if(id === null){
-      arr.push(value);
-    }else{
-      const idx = arr.findIndex(x => x && x.id === id);
-      if(idx >= 0) arr[idx] = value; else arr.push(value);
-    }
-    this._lsWrite(store, arr);
-    return value;
-  },
-  async del(db, store, key){
-    if(this.backend === "idb") return idbDel(db, store, key);
-    const arr = this._lsRead(store).filter(x => !(x && x.id === key));
-    this._lsWrite(store, arr);
-  },
-  async setMeta(db, key, value){
-    if(this.backend === "idb") return idbSetMeta(db, key, value);
-    try{ localStorage.setItem(this._lsKey(`meta_${key}`), JSON.stringify(value)); }catch(e){}
-    return value;
-  },
-  async getMeta(db, key, fallback=null){
-    if(this.backend === "idb") return idbGetMeta(db, key, fallback);
-    try{
-      const raw = localStorage.getItem(this._lsKey(`meta_${key}`));
-      return raw ? JSON.parse(raw) : fallback;
-    }catch(e){
-      return fallback;
-    }
-  },
-  async exportAll(db){
-    if(this.backend === "idb") return idbExportAll(db);
-    // export from LS
-    const stores = ["ponds","koi","logs","foods","koiPhotos","waterLogs","reminders"];
-    const out = { meta:{} };
-    for(const s of stores) out[s] = this._lsRead(s);
-    // meta keys
-    for(const k of ["settings"]){
-      out.meta[k] = await this.getMeta(db, k, null);
-    }
-    return out;
-  },
-  async importAll(db, payload){
-    if(this.backend === "idb") return idbImportAll(db, payload);
-    if(!payload || typeof payload !== "object") return;
-    const stores = ["ponds","koi","logs","foods","koiPhotos","waterLogs","reminders"];
-    for(const s of stores){
-      if(Array.isArray(payload[s])) this._lsWrite(s, payload[s]);
-    }
-    if(payload.meta && typeof payload.meta === "object"){
-      for(const [k,v] of Object.entries(payload.meta)){
-        await this.setMeta(db, k, v);
-      }
-    }
-  }
-};
+/* ===========================
+   Kodawari KoiFutter Kompass
+   Rebuilt stable runtime (2026-02-25)
+   =========================== */
 
 const $ = (sel, el=document) => el.querySelector(sel);
 const $$ = (sel, el=document) => Array.from(el.querySelectorAll(sel));
 const uid = () => Math.random().toString(16).slice(2) + Date.now().toString(16);
 
-const GOALS = [
-  "Erhalt",
-  "Wachstum",
-  "Konditionierung",
-  "Farbaufbau",
-  "Schonfütterung",
-  "Frühjahr/Herbst",
-  "Winter",
+const GOALS = ["Erhalt","Wachstum","Konditionierung","Farbaufbau","Schonfütterung","Frühjahr/Herbst","Winter"];
+const GOAL_RANGES = {
+  "Erhalt": { min: 70, max: 80 },
+  "Wachstum": { min: 100, max: 120 },
+  "Konditionierung": { min: 90, max: 100 },
+  "Farbaufbau": { min: 80, max: 100 },
+  "Schonfütterung": { min: 30, max: 50 },
+  "Frühjahr/Herbst": { min: 50, max: 70 },
+  "Winter": { min: 0, max: 20 },
+};
+
+const PRESET_FOODS = [
+  // Nutramare (Kodawari Koi Shop)
+  { id:"nutramare_koibasic", name:"Nutramare KoiBasic Swim", brand:"Nutramare", temp_min_c:12, temp_max_c:30, tags:["Erhalt"], url:"https://www.kodawari-koi.de/product-page/nutramare-koibasic" },
+  { id:"nutramare_koi360_swim", name:"Nutramare Koi360 Swim", brand:"Nutramare", temp_min_c:12, temp_max_c:30, tags:["Erhalt","Konditionierung"], url:"https://www.kodawari-koi.de/product-page/nutramare-koi360-swim" },
+  { id:"nutramare_koi360_goldplus", name:"Nutramare Koi360 Gold Plus", brand:"Nutramare", temp_min_c:16, temp_max_c:30, tags:["Farbaufbau"], url:"https://www.kodawari-koi.de/product-page/nutramare-koi360-gold-plus-swim" },
+  { id:"nutramare_koi360_tosai", name:"Nutramare Koi360 Tosai Swim", brand:"Nutramare", temp_min_c:15, temp_max_c:30, tags:["Wachstum"], url:"https://www.kodawari-koi.de/product-page/nutramare-koi360-tosai-swim" },
+  { id:"nutramare_wheatgerm", name:"Nutramare Koi360 Wheat Germ Swim", brand:"Nutramare", temp_min_c:8, temp_max_c:18, tags:["Schonfütterung","Frühjahr/Herbst"], url:"https://www.kodawari-koi.de/product-page/nutramare-koi360-wheat-germ-swim" },
+
+  // Takazumi (Kodawari Koi Shop)
+  { id:"takazumi_easy", name:"Takazumi Easy", brand:"Takazumi", temp_min_c:10, temp_max_c:30, tags:["Erhalt"], url:"https://www.kodawari-koi.de/product-page/takazumi-easy" },
+  { id:"takazumi_high_growth", name:"Takazumi High Growth", brand:"Takazumi", temp_min_c:18, temp_max_c:30, tags:["Wachstum","Konditionierung"], url:"https://www.kodawari-koi.de/product-page/takazumi-high-growth" },
+  { id:"takazumi_gold_plus", name:"Takazumi Gold Plus", brand:"Takazumi", temp_min_c:16, temp_max_c:30, tags:["Farbaufbau"], url:"https://www.kodawari-koi.de/product-page/takazumi-gold-plus" },
 ];
 
-// Prozent‑Faktoren bezogen auf "Normal" (Mittelwert aus Min‑Max)
-const GOAL_MULTIPLIERS = {
-  "Erhalt": 1.00,
-  "Wachstum": 1.25,
-  "Konditionierung": 1.15,
-  "Farbaufbau": 1.10,
-  "Schonfütterung": 0.60,
-  "Frühjahr/Herbst": 0.80,
-  "Winter": 0.40,
+const state = {
+  db: null,
+  route: "dash",
+  ponds: [],
+  koi: [],
+  logs: [],
+  foods: [],
+  settings: {
+    weightMode: "estimate",      // estimate | manual
+    weightFactor: 0.012,         // used for L^3 estimate
+    defaultGoal: "Erhalt",
+    defaultFood: "Nutramare Koi360 Swim",
+  },
 };
+
+function escapeHtml(s){
+  return String(s ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#39;");
+}
+
+function fmt(n, d=0){
+  const x = Number(n);
+  if(!Number.isFinite(x)) return "0";
+  return x.toLocaleString("de-DE",{maximumFractionDigits:d, minimumFractionDigits:d});
+}
+
+function clamp(n, a, b){ return Math.min(b, Math.max(a, n)); }
 
 function normalizeGoal(g){
   const s = (g||"").trim();
   if(!s) return "Erhalt";
-  // Backward‑compat mapping
   if(s === "Konditionsaufbau") return "Konditionierung";
   if(s === "Farbentwicklung") return "Farbaufbau";
   return s;
@@ -126,286 +76,16 @@ function normalizeGoal(g){
 
 function goalFactor(goal, tempC){
   const g = normalizeGoal(goal);
+  const r = GOAL_RANGES[g] || GOAL_RANGES["Erhalt"];
+  const mid = (Number(r.min) + Number(r.max)) / 2; // percent
   const t = Number(tempC);
-  // Unter 8°C generell 0 (egal welches Ziel)
-  if(Number.isFinite(t) && t < 8) return 0;
-  // Winter: nur bei >8°C überhaupt füttern, sonst 0.
   if(g === "Winter" && (!Number.isFinite(t) || t <= 8)) return 0;
-  return Number(GOAL_MULTIPLIERS[g] ?? GOAL_MULTIPLIERS["Erhalt"]); 
-}
-
-const PRESET_FOODS = [
-  // Nutramare (Kodawari Koi Shop)
-  {
-    id: "nutramare_koibasic",
-    name: "Nutramare KoiBasic Swim",
-    brand: "Nutramare",
-    category: "Basis / Allround",
-    protein: 33.0,
-    fat: 6.0,
-    fiber: 3.0,
-    ash: 8.5,
-    phosphorus: 1.0,
-    temp_min_c: 12,
-    temp_max_c: 30,
-    tags: ["Erhalt", "Konditionierung"],
-    url: "https://www.kodawari-koi.de/product-page/nutramare-koibasic",
-    notes: "Solides Basisfutter (ab ca. 12°C). Preis/Leistung, stabile Pellets, gute Verdaulichkeit."
-  },
-  {
-    id: "nutramare_koi360_swim",
-    name: "Nutramare Koi360 Swim",
-    brand: "Nutramare",
-    category: "Allround / Ganzjahr (warm)",
-    protein: 38.0,
-    fat: 8.0,
-    fiber: 2.5,
-    ash: 9.5,
-    phosphorus: 1.2,
-    temp_min_c: 12,
-    temp_max_c: 30,
-    tags: ["Erhalt", "Konditionierung", "Wachstum"],
-    url: "https://www.kodawari-koi.de/product-page/nutramare-koi360-swim",
-    notes: "360°-Versorgung, schwimmend, sehr gute Futterkontrolle (ab ca. 12°C)."
-  },
-  {
-    id: "nutramare_koi360_sensitive",
-    name: "Nutramare Koi360 Sensitive",
-    brand: "Nutramare",
-    category: "Schonkost / Übergang",
-    protein: 35.0,
-    fat: 7.0,
-    fiber: 3.2,
-    ash: 8.5,
-    phosphorus: 1.0,
-    temp_min_c: 8,
-    temp_max_c: 28,
-    tags: ["Schonfütterung", "Frühjahr/Herbst", "Erhalt"],
-    url: "https://www.kodawari-koi.de/product-page/nutramare-koi360-sensitive",
-    notes: "Für sensible Koi, nach Behandlungen oder in Übergangsphasen – entlastet Verdauung & System."
-  },
-  {
-    id: "nutramare_koi360_tosai",
-    name: "Nutramare Koi360 Tosai Swim",
-    brand: "Nutramare",
-    category: "Aufzucht / Wachstum (Tosai)",
-    protein: 45.0,
-    fat: 10.0,
-    fiber: 1.5,
-    ash: 9.5,
-    phosphorus: 1.2,
-    temp_min_c: 15,
-    temp_max_c: 30,
-    tags: ["Wachstum"],
-    url: "https://www.kodawari-koi.de/product-page/nutramare-koi360-tosai-swim",
-    notes: "Sehr proteinreich für Tosai-Aufzucht (ab ca. 15°C) – nur in kleinen Portionen, mehrfach täglich."
-  },
-
-  // Takazumi (Kodawari Koi Shop)
-  {
-    id: "takazumi_friend",
-    name: "Takazumi Friend",
-    brand: "Takazumi",
-    category: "Basis / Alltag",
-    protein: 33.0,
-    fat: 3.0,
-    fiber: 2.6,
-    ash: 4.4,
-    phosphorus: 0.7,
-    temp_min_c: 10,
-    temp_max_c: 30,
-    tags: ["Erhalt"],
-    url: "https://www.kodawari-koi.de/product-page/takazumi-friend-10kg",
-    notes: "Alltagsfutter für größere Bestände – gut kombinierbar mit Gold Plus oder Vital."
-  },
-  {
-    id: "takazumi_easy_mix",
-    name: "Takazumi Easy Mix (sinkend & schwimmend)",
-    brand: "Takazumi",
-    category: "Mix / Alltag",
-    protein: 33.0,
-    fat: 6.0,
-    fiber: 4.2,
-    ash: 8.3,
-    phosphorus: 1.1,
-    temp_min_c: 10,
-    temp_max_c: 30,
-    tags: ["Erhalt", "Frühjahr/Herbst"],
-    url: "https://www.kodawari-koi.de/product-page/takazumi-easy-sinkend",
-    notes: "Mix aus sinkend & schwimmend – gut bei gemischter Altersstruktur / scheuen Fischen."
-  },
-  {
-    id: "takazumi_mix",
-    name: "Takazumi Mix",
-    brand: "Takazumi",
-    category: "Allround / Saison",
-    protein: 40.0,
-    fat: 9.5,
-    fiber: 2.4,
-    ash: 6.5,
-    phosphorus: 1.2,
-    temp_min_c: 10,
-    temp_max_c: 30,
-    tags: ["Konditionierung", "Wachstum", "Erhalt"],
-    url: "https://www.kodawari-koi.de/product-page/takazumi-mix",
-    notes: "Ausgewogener Mix für aktive Saison (ab ca. 10°C)."
-  },
-  {
-    id: "takazumi_gold_plus",
-    name: "Takazumi Gold Plus",
-    brand: "Takazumi",
-    category: "Farbe / Ganzjahr (kühl möglich)",
-    protein: 35.0,
-    fat: 7.0,
-    fiber: 2.5,
-    ash: 9.0,
-    phosphorus: 0.9,
-    temp_min_c: 4,
-    temp_max_c: 30,
-    tags: ["Farbaufbau", "Frühjahr/Herbst", "Erhalt"],
-    url: "https://www.kodawari-koi.de/product-page/takazumi-gold-plus",
-    notes: "Farbbrillanz (Astaxanthin) + sehr hohe Verdaulichkeit – kann bereits ab ca. 4°C genutzt werden."
-  },
-  {
-    id: "takazumi_high_growth",
-    name: "Takazumi High Growth",
-    brand: "Takazumi",
-    category: "Wachstum / Saison",
-    protein: 45.0,
-    fat: 12.0,
-    fiber: 2.3,
-    ash: 7.0,
-    phosphorus: 1.4,
-    temp_min_c: 15,
-    temp_max_c: 30,
-    tags: ["Wachstum"],
-    url: "https://www.kodawari-koi.de/product-page/takazumi-high-groth",
-    notes: "Maximales Wachstum – empfohlen ab ca. 15°C (Hochsaison)."
-  },
-  {
-    id: "takazumi_vital",
-    name: "Takazumi Vital",
-    brand: "Takazumi",
-    category: "Immun / Winter / Kur",
-    protein: 35.0,
-    fat: 7.0,
-    fiber: 2.5,
-    ash: 9.0,
-    phosphorus: 0.9,
-    temp_min_c: 4,
-    temp_max_c: 20,
-    tags: ["Schonfütterung", "Frühjahr/Herbst", "Winter", "Erhalt"],
-    url: "https://www.kodawari-koi.de/product-page/takazumi-vital",
-    notes: "Für Immunkur, Stressphasen und kalte Jahreszeit (ab ca. 4°C)."
-  }
-];
-
-async function addMissingFoods(presets){
-  const existing = new Set((state.foods||[]).map(f=>f.id));
-  for(const f of presets){
-    if(existing.has(f.id)) continue;
-    await storage.put(state.db, "foods", f);
-    existing.add(f.id);
-  }
-  state.foods = await storage.getAll(state.db, "foods");
-}
-
-
-async function removeFoodsByIds(ids=[]){
-  if(!state.db) return;
-  const set = new Set(ids.map(x=>String(x)));
-  const current = await storage.getAll(state.db, "foods");
-  const toDelete = current.filter(f => set.has(String(f.id)) || set.has(String(f.name||"").toLowerCase()));
-  for(const f of toDelete){
-    try{ await storage.del(state.db, "foods", f.id); }catch{}
-  }
-  // refresh in-memory list
-  try{ state.foods = await storage.getAll(state.db, "foods"); }catch{ state.foods = []; }
-}
-
-
-function foodLabel(f){
-  const b = (f.brand||"").trim();
-  return b ? `${b} • ${f.name}` : (f.name||"Futter");
-}
-
-
-const state = {
-  route: "dash",
-  db: null,
-  ponds: [],
-  koi: [],
-  logs: [],
-  foods: [],
-  koiPhotos: [],
-  waterLogs: [],
-  reminders: [],
-  settings: {
-    lockEnabled: false,
-    weightMode: "estimate", // estimate|manual
-    weightFactor: 0.012, // g per cm^3 factor
-    tempUnit: "C",
-    defaultFood: "Nutramare Koi360 Swim",
-    defaultGoal: "Erhalt",
-  }
-};
-
-function fmt(n, d=0){
-  if(n === null || n === undefined || Number.isNaN(n)) return "—";
-  const f = new Intl.NumberFormat("de-DE", {maximumFractionDigits:d, minimumFractionDigits:d});
-  return f.format(n);
-}
-function clamp(n,a,b){ return Math.max(a, Math.min(b,n)); }
-function toast(msg){
-  const t = $("#toast");
-  t.textContent = msg;
-  t.classList.add("show");
-  clearTimeout(toast._t);
-  toast._t = setTimeout(()=>t.classList.remove("show"), 2400);
-}
-
-function openModal({title, bodyHTML, footHTML, onMount}){
-  $("#modalTitle").textContent = title || "";
-  $("#modalBody").innerHTML = bodyHTML || "";
-  $("#modalFoot").innerHTML = footHTML || "";
-  $("#modal").classList.add("show");
-  $("#modal").setAttribute("aria-hidden","false");
-  if(onMount) onMount();
-}
-function closeModal(){
-  $("#modal").classList.remove("show");
-  $("#modal").setAttribute("aria-hidden","true");
-}
-$("#modalClose").addEventListener("click", closeModal);
-$("#modal").addEventListener("click", (e)=>{ if(e.target.id==="modal") closeModal(); });
-
-function setRoute(r){
-  state.route = r;
-  $$(".tab").forEach(b=>b.classList.toggle("active", b.dataset.route===r));
-  $$(".bottab").forEach(b=>b.classList.toggle("active", b.dataset.route===r));
-  render();
-}
-
-$$(".tab").forEach(b=>b.addEventListener("click", ()=>setRoute(b.dataset.route)));
-$$(".bottab").forEach(b=>b.addEventListener("click", ()=>setRoute(b.dataset.route)));
-
-function estimateWeightFromLengthCm(L){
-  const f = Number(state.settings.weightFactor) || 0.012;
-  return Math.max(0, f * Math.pow(L, 3));
-}
-
-function koiWeight(k){
-  if(state.settings.weightMode === "manual" && k.weight_g) return Number(k.weight_g) || 0;
-  if(k.length_cm) return estimateWeightFromLengthCm(Number(k.length_cm)||0);
-  return 0;
-}
-
-function totalWeightG(){
-  return state.koi.reduce((a,k)=>a + koiWeight(k), 0);
+  if(Number.isFinite(t) && t < 8) return 0;
+  return mid / 100;
 }
 
 function recPercentByTemp(tempC){
-  // Very conservative heuristic; adjust in Settings.
+  // Base % of biomass/day (very conservative)
   const t = Number(tempC);
   if(Number.isNaN(t)) return 0.01;
   if(t < 8) return 0.0;
@@ -416,6 +96,22 @@ function recPercentByTemp(tempC){
   return 0.010;
 }
 
+function estimateWeightFromLengthCm(L){
+  // Simple allometric estimate; user can switch to manual per koi
+  const f = Number(state.settings.weightFactor) || 0.012;
+  return Math.max(0, f * Math.pow(Number(L)||0, 3));
+}
+
+function koiWeight(k){
+  if(state.settings.weightMode === "manual" && k.weight_g) return Number(k.weight_g) || 0;
+  if(k.length_cm) return estimateWeightFromLengthCm(k.length_cm);
+  return 0;
+}
+
+function totalWeightG(){
+  return state.koi.reduce((a,k)=>a + koiWeight(k), 0);
+}
+
 function recommendedFeedGPerDay(tempC, goal){
   const biomass = totalWeightG();
   const pct = recPercentByTemp(tempC);
@@ -423,177 +119,149 @@ function recommendedFeedGPerDay(tempC, goal){
   return biomass * pct * gf;
 }
 
-function recommendFoodByTempAndGoal(tempC, goal){
-  const t = Number(tempC);
-  if(!state.foods || state.foods.length === 0) return null;
-  const g = (goal || "").trim();
-  const candidates = state.foods.filter(f=>{
-    const min = Number(f.temp_min_c);
-    const max = Number(f.temp_max_c);
-    const okTemp = (Number.isFinite(min)? t >= min : true) && (Number.isFinite(max)? t <= max : true);
-    const tags = Array.isArray(f.tags) ? f.tags : [];
-    const okGoal = !g ? true : (
-      tags.includes(g) ||
-      (g === "Erhalt" && tags.includes("Erhalt")) ||
-      tags.length===0
-    );
-    return okTemp && okGoal;
-  });
-  const pickFrom = candidates.length ? candidates : state.foods;
-  // prefer foods that explicitly match goal
-  pickFrom.sort((a,b)=>{
-    const at = Array.isArray(a.tags)?a.tags:[];
-    const bt = Array.isArray(b.tags)?b.tags:[];
-    const as = at.includes(g)?2:at.includes("Erhalt")?1:0;
-    const bs = bt.includes(g)?2:bt.includes("Erhalt")?1:0;
-    return bs - as;
-  });
-  return pickFrom[0] || null;
+function foodLabel(f){
+  const brand = f.brand ? `${f.brand} • ` : "";
+  return `${brand}${f.name}`;
 }
 
 function recommendFoodsByTempAndGoal(tempC, goal, limit=3){
   const t = Number(tempC);
-  const g = normalizeGoal(goal);
-  if(!state.foods || state.foods.length===0) return [];
-  const scored = state.foods.map(f=>{
+  const g = (goal||"").trim();
+  const foods = Array.isArray(state.foods) ? state.foods : [];
+  if(!foods.length) return [];
+  const byTemp = foods.filter(f=>{
     const min = Number(f.temp_min_c);
     const max = Number(f.temp_max_c);
     const okTemp = (Number.isFinite(min)? t >= min : true) && (Number.isFinite(max)? t <= max : true);
-    const tags = Array.isArray(f.tags) ? f.tags : [];
-    const sGoal = tags.includes(g) ? 4 : (
-      (g === "Erhalt" && tags.includes("Erhalt")) ? 3 :
-      (tags.length ? 0 : 0)
-    );
-    const sTemp = okTemp ? 3 : 0;
-    const sProt = Number(f.protein)||0;
-    const score = sTemp*10 + sGoal*5 + sProt/20;
-    return { f, score, okTemp, tags };
+    return okTemp;
   });
-  scored.sort((a,b)=>b.score-a.score);
-  return scored.filter(x=>x.okTemp || scored.filter(y=>y.okTemp).length===0).slice(0, limit).map(x=>x.f);
+
+  // STRICT: if goal selected, only foods tagged with that goal
+  let candidates = byTemp;
+  if(g){
+    const strict = byTemp.filter(f=>Array.isArray(f.tags) && f.tags.includes(g));
+    if(strict.length) candidates = strict;
+  }
+
+  // stable sort: prefer goal match, then tighter temp range
+  candidates = candidates.slice().sort((a,b)=>{
+    const at = Array.isArray(a.tags)?a.tags:[];
+    const bt = Array.isArray(b.tags)?b.tags:[];
+    const ag = g && at.includes(g) ? 1 : 0;
+    const bg = g && bt.includes(g) ? 1 : 0;
+    if(bg !== ag) return bg - ag;
+    const ar = (Number(a.temp_max_c)||99) - (Number(a.temp_min_c)||0);
+    const br = (Number(b.temp_max_c)||99) - (Number(b.temp_min_c)||0);
+    return ar - br;
+  });
+
+  return candidates.slice(0, limit);
 }
 
-function nextDueReminder(){
-  const enabled = (state.reminders||[]).filter(r=>r.enabled);
-  const due = enabled
-    .map(r=>({ ...r, _t: Date.parse(r.next_at || "") }))
-    .filter(r=>Number.isFinite(r._t))
-    .sort((a,b)=>a._t-b._t);
-  return due[0] || null;
+function recommendFoodByTempAndGoal(tempC, goal){
+  return recommendFoodsByTempAndGoal(tempC, goal, 1)[0] || null;
 }
 
-function isReminderDue(r){
-  const t = Date.parse(r.next_at || "");
-  return Number.isFinite(t) && t <= Date.now();
+function toast(msg){
+  const el = $("#toast");
+  if(!el) return alert(msg);
+  el.textContent = msg;
+  el.classList.add("show");
+  setTimeout(()=>el.classList.remove("show"), 2200);
 }
 
-async function bumpReminder(r){
-  const day = 24*60*60*1000;
-  const every = Math.max(1, Number(r.every_days) || 7);
-  const next = new Date(Date.now() + every*day).toISOString();
-  const upd = { ...r, next_at: next };
-  await storage.put(state.db, "reminders", upd);
-  await loadAll();
+/* ---------- Modal ---------- */
+function openModal({title, bodyHTML, footHTML, onMount}){
+  $("#modalTitle").textContent = title || "—";
+  $("#modalBody").innerHTML = bodyHTML || "";
+  $("#modalFoot").innerHTML = footHTML || "";
+  const m = $("#modal");
+  m.setAttribute("aria-hidden","false");
+  m.classList.add("open");
+
+  const close = () => closeModal();
+  $("#modalClose").onclick = close;
+  m.addEventListener("click", (e)=>{ if(e.target === m) closeModal(); }, { once:true });
+
+  if(typeof onMount === "function") onMount();
+}
+function closeModal(){
+  const m = $("#modal");
+  m.setAttribute("aria-hidden","true");
+  m.classList.remove("open");
 }
 
-function startReminderLoop(){
-  // Only while app is open (simple + reliable). Uses Notification API if granted.
-  clearInterval(startReminderLoop._t);
-  startReminderLoop._seen = startReminderLoop._seen || new Set();
-  startReminderLoop._t = setInterval(async ()=>{
-    const due = (state.reminders||[]).filter(r=>r.enabled && isReminderDue(r));
-    if(due.length===0) return;
-    for(const r of due){
-      if(startReminderLoop._seen.has(r.id)) continue;
-      startReminderLoop._seen.add(r.id);
-      toast(`Erinnerung fällig: ${r.name}`);
-      if("Notification" in window && Notification.permission === "granted"){
-        try{ new Notification("Kodawari Koi", { body: `Erinnerung fällig: ${r.name}` }); }catch{}
-      }
+function setRoute(r){
+  state.route = r;
+  $$(".tab, .bottab").forEach(b=>b.classList.toggle("active", b.dataset.route === r));
+  render();
+}
+
+/* ---------- Data ---------- */
+async function loadAll(){
+  state.ponds = await getAll(state.db, "ponds");
+  state.koi   = await getAll(state.db, "koi");
+  state.logs  = await getAll(state.db, "logs");
+  try{ state.foods = await getAll(state.db, "foods"); }catch{ state.foods=[]; }
+}
+
+async function saveSettings(){
+  await setMeta(state.db, "settings", state.settings);
+}
+
+async function loadSettings(){
+  const s = await getMeta(state.db, "settings", null);
+  if(s && typeof s === "object"){
+    state.settings = { ...state.settings, ...s };
+  }
+  if(!GOALS.includes(state.settings.defaultGoal)) state.settings.defaultGoal = "Erhalt";
+}
+
+async function addMissingFoods(presets){
+  const existing = new Set((state.foods||[]).map(f=>f.id));
+  for(const f of presets){
+    if(!existing.has(f.id)){
+      await put(state.db, "foods", f);
     }
-    // refresh dashboard badges
-    if(state.route === "dash" || state.route === "stats") render();
-  }, 60*1000);
+  }
+  state.foods = await getAll(state.db, "foods");
 }
 
+async function purgeRemovedFoods(){
+  // remove generic placeholders requested by Andre
+  const removeIds = new Set(["food_allround","food_wheatgerm","food_growth","food_color"]);
+  const all = state.foods || [];
+  for(const f of all){
+    if(removeIds.has(f.id)){
+      await del(state.db, "foods", f.id);
+    }
+  }
+  state.foods = await getAll(state.db, "foods");
+}
+
+async function ensureDefaults(){
+  await addMissingFoods(PRESET_FOODS);
+  await purgeRemovedFoods();
+}
+
+/* ---------- Views ---------- */
 function deriveKpis(){
   const ponds = state.ponds.length;
   const koi = state.koi.length;
   const biomass = totalWeightG();
-  const lastLog = state.logs
-    .slice()
-    .sort((a,b)=>new Date(b.at)-new Date(a.at))[0] || null;
+  const lastLog = state.logs.slice().sort((a,b)=>new Date(b.at)-new Date(a.at))[0] || null;
   return { ponds, koi, biomass, lastLog };
-}
-
-async function loadAll(){
-  state.ponds = await storage.getAll(state.db, "ponds");
-  state.koi = await storage.getAll(state.db, "koi");
-  state.logs = await storage.getAll(state.db, "logs");
-  // v2 stores
-  try{ state.foods = await storage.getAll(state.db, "foods"); }catch{ state.foods = []; }
-  try{ state.koiPhotos = await storage.getAll(state.db, "koiPhotos"); }catch{ state.koiPhotos = []; }
-  try{ state.waterLogs = await storage.getAll(state.db, "waterLogs"); }catch{ state.waterLogs = []; }
-  try{ state.reminders = await storage.getAll(state.db, "reminders"); }catch{ state.reminders = []; }
-}
-
-async function ensureDefaults(){
-  // Food catalogue: Basis + Presets (Nutramare/Takazumi) – ergänzt ohne deine eigenen Einträge zu überschreiben
-    // Food catalogue: nur Produkte aus deinem Shop (kodawari-koi.de)
-  // (keine generischen Platzhalter wie Allround/Color/Wheatgerm/Growth)
-  await addMissingFoods([...PRESET_FOODS]);
-
-  // Cleanup: entferne ggf. frühere Platzhalter aus älteren Versionen
-  await removeFoodsByIds(["food_allround","food_wheatgerm","food_growth","food_color"]); 
-
-
-  // Default reminders
-  if(!state.reminders || state.reminders.length === 0){
-    const now = Date.now();
-    const day = 24*60*60*1000;
-    const defaults = [
-      { id:"rem_waterchange", name:"Wasserwechsel", every_days: 14, next_at: new Date(now + 14*day).toISOString(), enabled: true },
-      { id:"rem_filter", name:"Filterreinigung", every_days: 7, next_at: new Date(now + 7*day).toISOString(), enabled: true },
-      { id:"rem_watertest", name:"Wasserwerte messen", every_days: 7, next_at: new Date(now + 7*day).toISOString(), enabled: true },
-    ];
-    for(const r of defaults) await storage.put(state.db, "reminders", r);
-    state.reminders = await storage.getAll(state.db, "reminders");
-  }
-}
-
-async function loadSettings(){
-  const s = await storage.getMeta(state.db, "settings", null);
-  if(s && typeof s === "object"){
-    state.settings = { ...state.settings, ...s };
-    if("lockPassword" in state.settings) delete state.settings.lockPassword;
-  } else {
-    await storage.setMeta(state.db, "settings", state.settings);
-  }
-}
-
-async function saveSettings(){
-  await storage.setMeta(state.db, "settings", state.settings);
-}
-
-function render(){
-  const v = $("#view");
-  if(state.route === "dash") v.innerHTML = viewDash();
-  if(state.route === "ponds") v.innerHTML = viewPonds();
-  if(state.route === "koi") v.innerHTML = viewKoi();
-  if(state.route === "calc") v.innerHTML = viewCalc();
-  if(state.route === "log") v.innerHTML = viewLog();
-  if(state.route === "stats") v.innerHTML = viewStats();
-
-  // bind actions
-  bindViewActions();
 }
 
 function viewDash(){
   const k = deriveKpis();
   const temp = state.ponds[0]?.temp_c ?? 18;
+  const pct = recPercentByTemp(temp);
+  const gf  = goalFactor(state.settings.defaultGoal, temp);
+  const overallPct = pct * gf * 100;
   const rec = recommendedFeedGPerDay(temp, state.settings.defaultGoal);
   const recFood = recommendFoodByTempAndGoal(temp, state.settings.defaultGoal);
-  const nextReminder = nextDueReminder();
+
   return `
     <div class="grid">
       <section class="card">
@@ -604,21 +272,28 @@ function viewDash(){
           <div class="kpi__item"><div class="kpi__label">Gesamtgewicht (≈)</div><div class="kpi__value">${fmt(k.biomass/1000,2)} kg</div></div>
           <div class="kpi__item"><div class="kpi__label">Empfehlung/Tag</div><div class="kpi__value">${fmt(rec,0)} g</div></div>
         </div>
-        <div class="row" style="margin-top:8px">
-          <span class="badge">Ziel: ${escapeHtml(state.settings.defaultGoal||"Erhalt")}</span> <span class="badge">Faktor: ${fmt((recPercentByTemp(temp)*goalFactor(state.settings.defaultGoal, temp))*100,2)}%</span>
-          <span class="badge">Futter‑Tipp: ${escapeHtml(recFood ? foodLabel(recFood) : (state.settings.defaultFood || "—"))}</span>
-          ${nextReminder ? `<span class="badge">🔔 Nächstes: ${escapeHtml(nextReminder.name)} • ${new Date(nextReminder.next_at).toLocaleDateString("de-DE")}</span>` : ``}
+
+        <div class="row" style="margin-top:8px; flex-wrap:wrap">
+          <span class="badge">Ziel: ${escapeHtml(state.settings.defaultGoal)}</span>
+          <span class="badge">Temp‑Basis: ${fmt(pct*100,2)}%</span>
+          <span class="badge">Ziel‑Faktor: ${fmt(gf*100,0)}%</span>
+          <span class="badge">Gesamt: ${fmt(overallPct,2)}%</span>
         </div>
+
+        <div class="row" style="margin-top:8px; flex-wrap:wrap">
+          <span class="badge">Futter‑Tipp: ${escapeHtml(recFood ? foodLabel(recFood) : (state.settings.defaultFood || "—"))}</span>
+        </div>
+
         <hr class="sep"/>
-        <p>
-          Empfehlung basiert auf Temperatur & Gewicht. In den Einstellungen kannst du die Gewichtsschätzung anpassen –
-          und Futtersorten / Erinnerungen verwalten.
-        </p>
-        <div class="row">
+        <p>Empfehlung basiert auf Temperatur × Ziel × (Koi‑Gewicht). In den Einstellungen kannst du die Gewichtsschätzung & das Futterziel anpassen.</p>
+
+        <div class="row" style="flex-wrap:wrap">
           <button class="btn primary" data-act="quickLog">+ Fütterung loggen</button>
           <button class="btn" data-act="addPond">+ Teich</button>
           <button class="btn" data-act="addKoi">+ Koi</button>
-          ${recFood && recFood.url ? `<a class="btn" href="${recFood.url}" target="_blank" rel="noopener">🛒 Empfohlenes Futter bestellen</a>` : `<a class="btn" href="https://www.kodawari-koi.de/category/koi-futter" target="_blank" rel="noopener">🛒 Futter nachbestellen</a>`}
+          ${recFood?.url ? `<a class="btn" href="${recFood.url}" target="_blank" rel="noopener">🛒 Empfohlenes Futter bestellen</a>` :
+            `<a class="btn" href="https://www.kodawari-koi.de/category/koi-futter" target="_blank" rel="noopener">🛒 Futter nachbestellen</a>`}
+          <button class="btn" data-act="settings">⚙️ Einstellungen</button>
         </div>
       </section>
 
@@ -627,7 +302,7 @@ function viewDash(){
         ${k.lastLog ? `
           <div class="item">
             <div class="item__title">${new Date(k.lastLog.at).toLocaleString("de-DE")}</div>
-            <div class="item__meta">${fmt(k.lastLog.amount_g,0)} g • ${k.lastLog.food || state.settings.defaultFood}${k.lastLog.pondId ? " • " + (state.ponds.find(p=>p.id===k.lastLog.pondId)?.name || "Teich") : ""}</div>
+            <div class="item__meta">${fmt(k.lastLog.amount_g,0)} g • ${escapeHtml(k.lastLog.food || state.settings.defaultFood)}</div>
             ${k.lastLog.note ? `<div class="item__meta">${escapeHtml(k.lastLog.note)}</div>` : ""}
           </div>
         ` : `<p>Noch kein Logbuch‑Eintrag.</p>`}
@@ -647,184 +322,613 @@ function viewPonds(){
         <h2>Teiche</h2>
         <button class="btn primary" data-act="addPond">+ Teich hinzufügen</button>
       </div>
-      <p>Verwalte Volumen und Temperatur – das beeinflusst die Empfehlung.</p>
-      <div class="list">
-        ${list.length? list.map(p=>pondItem(p)).join("") : `<div class="item"><div class="item__title">Noch kein Teich</div><div class="item__meta">Lege deinen ersten Teich an.</div></div>`}
-      </div>
+      ${list.length ? `
+        <div class="list">
+          ${list.map(p=>`
+            <div class="item">
+              <div>
+                <div class="item__title">${escapeHtml(p.name||"Teich")}</div>
+                <div class="item__meta">Temp: ${fmt(p.temp_c ?? "—", 1)} °C • Volumen: ${fmt(p.volume_l ?? "—",0)} L</div>
+              </div>
+              <div class="row">
+                <button class="btn small" data-act="editPond" data-id="${p.id}">Bearbeiten</button>
+                <button class="btn small danger" data-act="delPond" data-id="${p.id}">Löschen</button>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<p>Noch keine Teiche. Leg jetzt deinen ersten an.</p>`}
     </section>
   `;
 }
-function pondItem(p){
+
+function viewKoi(){
+  const list = state.koi.slice().sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   return `
-    <div class="item" style="margin-top:10px">
-        <div class="item__title">Gewicht</div>
-        <div class="item__meta">Entweder manuell pro Koi oder geschätzt aus der Länge.</div>
-        <div class="label">Modus</div>
-        <select id="sWeightMode" class="input">
-          <option value="estimate" ${state.settings.weightMode==="estimate"?"selected":""}>Schätzung (Länge → Gewicht)</option>
-          <option value="manual" ${state.settings.weightMode==="manual"?"selected":""}>Manuell (Gewicht‑Feld nutzen)</option>
-        </select>
-        <div class="label">Schätz‑Faktor (g / cm³)</div>
-        <input class="input" id="sFactor" type="number" step="0.001" value="${escapeAttr(state.settings.weightFactor)}">
-        <div class="item__meta">Formel: Gewicht(g) ≈ Faktor × Länge(cm)^3. Typisch 0,010–0,015.</div>
+    <section class="card">
+      <div class="row space">
+        <h2>Koi</h2>
+        <button class="btn primary" data-act="addKoi">+ Koi hinzufügen</button>
+      </div>
+      ${list.length ? `
+        <div class="list">
+          ${list.map(k=>`
+            <div class="item">
+              <div>
+                <div class="item__title">${escapeHtml(k.name||"Koi")}</div>
+                <div class="item__meta">Länge: ${fmt(k.length_cm ?? "—",0)} cm • Gewicht: ${fmt(koiWeight(k)/1000,2)} kg</div>
+              </div>
+              <div class="row">
+                <button class="btn small" data-act="editKoi" data-id="${k.id}">Bearbeiten</button>
+                <button class="btn small danger" data-act="delKoi" data-id="${k.id}">Löschen</button>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<p>Noch keine Koi. Leg jetzt deinen ersten an.</p>`}
+    </section>
+  `;
+}
+
+function viewCalc(){
+  const temp = state.ponds[0]?.temp_c ?? 18;
+  const biomass = totalWeightG();
+  const pct = recPercentByTemp(temp);
+  const gf  = goalFactor(state.settings.defaultGoal, temp);
+  const grams = biomass * pct * gf;
+  const foods = recommendFoodsByTempAndGoal(temp, state.settings.defaultGoal, 3);
+
+  return `
+    <section class="card">
+      <div class="row space">
+        <h2>Rechner</h2>
+        <button class="btn" data-act="settings">⚙️ Einstellungen</button>
       </div>
 
-      <div class="item" style="margin-top:10px">
-        <div class="item__title">Standard‑Futter</div>
-        <div class="label">Name</div>
-        <input class="input" id="sFood" value="${escapeAttr(state.settings.defaultFood||"Nutramare Koi360 Swim")}" placeholder="Nutramare Koi360 Swim">
+      <div class="grid2">
+        <div>
+          <div class="label">Temperatur (°C)</div>
+          <input id="calcTemp" class="input" type="number" step="0.5" value="${escapeHtml(temp)}"/>
+        </div>
+        <div>
+          <div class="label">Fütterungsziel</div>
+          <select id="calcGoal" class="input">
+            ${GOALS.map(g=>`<option value="${g}" ${g===state.settings.defaultGoal?"selected":""}>${escapeHtml(g)}</option>`).join("")}
+          </select>
+        </div>
       </div>
 
-      <div class="item" style="margin-top:10px">
-        <div class="item__title">Standard‑Ziel</div>
-        <div class="label">Fütterungsziel</div>
-        <select id="sGoal" class="input">
-          ${GOALS.map(g=>`<option value="${g}" ${g===state.settings.defaultGoal?"selected":""}>${escapeHtml(g)}</option>`).join("")}
-        </select>
+      <div class="kpi" style="margin-top:10px">
+        <div class="kpi__item"><div class="kpi__label">Biomasse</div><div class="kpi__value">${fmt(biomass/1000,2)} kg</div></div>
+        <div class="kpi__item"><div class="kpi__label">Temp‑Basis</div><div class="kpi__value">${fmt(pct*100,2)}%</div></div>
+        <div class="kpi__item"><div class="kpi__label">Ziel‑Faktor</div><div class="kpi__value">${fmt(gf*100,0)}%</div></div>
+        <div class="kpi__item"><div class="kpi__label">Empfehlung/Tag</div><div class="kpi__value">${fmt(grams,0)} g</div></div>
       </div>
 
-      <div class="row" style="margin-top:10px">
-        <button class="btn" data-act="manageFoods">Futtersorten verwalten</button>
-        <button class="btn" data-act="manageReminders">Erinnerungen</button>
+      <hr class="sep"/>
+      <h3>Futterempfehlung</h3>
+      ${foods.length ? `
+        <div class="list">
+          ${foods.map(f=>`
+            <div class="item">
+              <div>
+                <div class="item__title">${escapeHtml(foodLabel(f))}</div>
+                <div class="item__meta">Temp: ${fmt(f.temp_min_c ?? "—",0)}–${fmt(f.temp_max_c ?? "—",0)} °C • Tags: ${(f.tags||[]).map(escapeHtml).join(", ")}</div>
+              </div>
+              <div class="row">
+                ${f.url ? `<a class="btn small" href="${f.url}" target="_blank" rel="noopener">Öffnen</a>` : ``}
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<p>Keine passenden Futtersorten gefunden. Öffne Einstellungen → Futtersorten verwalten.</p>`}
+    </section>
+  `;
+}
+
+function viewLog(){
+  const list = state.logs.slice().sort((a,b)=>new Date(b.at)-new Date(a.at));
+  return `
+    <section class="card">
+      <div class="row space">
+        <h2>Logbuch</h2>
+        <button class="btn primary" data-act="quickLog">+ Eintrag</button>
+      </div>
+      ${list.length ? `
+        <div class="list">
+          ${list.map(l=>`
+            <div class="item">
+              <div>
+                <div class="item__title">${new Date(l.at).toLocaleString("de-DE")}</div>
+                <div class="item__meta">${fmt(l.amount_g,0)} g • ${escapeHtml(l.food || state.settings.defaultFood)}${l.pondId ? " • " + escapeHtml(state.ponds.find(p=>p.id===l.pondId)?.name || "Teich") : ""}</div>
+                ${l.note ? `<div class="item__meta">${escapeHtml(l.note)}</div>` : ""}
+              </div>
+              <div class="row">
+                <button class="btn small danger" data-act="delLog" data-id="${l.id}">Löschen</button>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<p>Noch keine Einträge.</p>`}
+    </section>
+  `;
+}
+
+function viewStats(){
+  const biomass = totalWeightG();
+  const avgTemp = state.ponds.length ? (state.ponds.reduce((a,p)=>a+Number(p.temp_c||0),0)/state.ponds.length) : 0;
+  return `
+    <section class="card">
+      <div class="row space">
+        <h2>Auswertung</h2>
+        <button class="btn" data-act="dataTools">📦 Export/Import</button>
+      </div>
+      <div class="kpi">
+        <div class="kpi__item"><div class="kpi__label">Teiche</div><div class="kpi__value">${state.ponds.length}</div></div>
+        <div class="kpi__item"><div class="kpi__label">Koi</div><div class="kpi__value">${state.koi.length}</div></div>
+        <div class="kpi__item"><div class="kpi__label">Biomasse</div><div class="kpi__value">${fmt(biomass/1000,2)} kg</div></div>
+        <div class="kpi__item"><div class="kpi__label">Ø Temp</div><div class="kpi__value">${fmt(avgTemp,1)} °C</div></div>
+      </div>
+      <hr class="sep"/>
+      <p>Mehr Auswertungen (Verlauf, Kosten, Wachstum) kann ich dir als nächstes sauber ergänzen – erstmal läuft wieder alles stabil.</p>
+    </section>
+  `;
+}
+
+function render(){
+  const v = $("#view");
+  if(!v) return;
+
+  if(state.route === "dash") v.innerHTML = viewDash();
+  else if(state.route === "ponds") v.innerHTML = viewPonds();
+  else if(state.route === "koi") v.innerHTML = viewKoi();
+  else if(state.route === "calc") v.innerHTML = viewCalc();
+  else if(state.route === "log") v.innerHTML = viewLog();
+  else if(state.route === "stats") v.innerHTML = viewStats();
+  else v.innerHTML = viewDash();
+
+  bindViewActions();
+}
+
+/* ---------- Actions ---------- */
+function bindViewActions(){
+  // route buttons
+  $$(".tab, .bottab").forEach(b=>{
+    b.onclick = ()=> setRoute(b.dataset.route);
+  });
+
+  $$("[data-act]").forEach(el=>{
+    el.onclick = (e)=>{
+      const act = el.dataset.act;
+      const id = el.dataset.id;
+      if(act === "addPond") return openPondModal();
+      if(act === "editPond") return openPondModal(id);
+      if(act === "delPond") return deletePond(id);
+
+      if(act === "addKoi") return openKoiModal();
+      if(act === "editKoi") return openKoiModal(id);
+      if(act === "delKoi") return deleteKoi(id);
+
+      if(act === "quickLog") return openLogModal();
+      if(act === "delLog") return deleteLog(id);
+
+      if(act === "settings") return openSettingsModal();
+      if(act === "dataTools") return openDataTools();
+    };
+  });
+
+  const calcTemp = $("#calcTemp");
+  const calcGoal = $("#calcGoal");
+  if(calcTemp) calcTemp.oninput = ()=> {
+    // update temp in first pond if exists (nice UX)
+    if(state.ponds[0]){
+      const p = {...state.ponds[0], temp_c: Number(calcTemp.value)};
+      put(state.db,"ponds",p).then(loadAll).then(()=>render()).catch(()=>render());
+    }else{
+      render();
+    }
+  };
+  if(calcGoal) calcGoal.onchange = async ()=> {
+    state.settings.defaultGoal = calcGoal.value;
+    await saveSettings();
+    render();
+  };
+}
+
+/* ---------- CRUD modals ---------- */
+function openPondModal(id=null){
+  const p = id ? state.ponds.find(x=>x.id===id) : null;
+  openModal({
+    title: p ? "Teich bearbeiten" : "Teich hinzufügen",
+    bodyHTML: `
+      <div class="field"><div class="label">Name</div><input id="pName" class="input" value="${escapeHtml(p?.name||"")}" /></div>
+      <div class="grid2">
+        <div class="field"><div class="label">Temperatur (°C)</div><input id="pTemp" class="input" type="number" step="0.5" value="${escapeHtml(p?.temp_c ?? 18)}" /></div>
+        <div class="field"><div class="label">Volumen (Liter)</div><input id="pVol" class="input" type="number" step="1" value="${escapeHtml(p?.volume_l ?? "")}" /></div>
       </div>
     `,
     footHTML: `
-      <button class="btn" id="sCancel">Abbrechen</button>
-      <button class="btn primary" id="sSave">Speichern</button>
+      <button class="btn" id="mCancel">Abbrechen</button>
+      <button class="btn primary" id="mSave">Speichern</button>
     `,
     onMount(){
-      $("#sCancel").addEventListener("click", closeModal);
-      $("#sSave").addEventListener("click", async ()=>{
-        state.settings.lockEnabled = false;
-        state.settings.weightMode = $("#sWeightMode").value;
-        state.settings.weightFactor = clamp(Number($("#sFactor").value || 0.012), 0.001, 0.05);
-        state.settings.defaultFood = ($("#sFood").value || "Nutramare Koi360 Swim").trim();
-        state.settings.defaultGoal = $("#sGoal").value || "Erhalt";
+      $("#mCancel").onclick = closeModal;
+      $("#mSave").onclick = async ()=>{
+        const obj = {
+          id: p?.id || uid(),
+          name: $("#pName").value.trim() || "Teich",
+          temp_c: Number($("#pTemp").value),
+          volume_l: $("#pVol").value ? Number($("#pVol").value) : null,
+        };
+        await put(state.db, "ponds", obj);
+        await loadAll();
+        closeModal();
+        toast("Gespeichert");
+        render();
+      };
+    }
+  });
+}
 
+async function deletePond(id){
+  if(!id) return;
+  if(!confirm("Teich wirklich löschen?")) return;
+  await del(state.db, "ponds", id);
+  // also detach koi/log pond references
+  for(const k of state.koi){
+    if(k.pondId === id) await put(state.db,"koi",{...k, pondId:null});
+  }
+  for(const l of state.logs){
+    if(l.pondId === id) await put(state.db,"logs",{...l, pondId:null});
+  }
+  await loadAll();
+  toast("Gelöscht");
+  render();
+}
+
+function openKoiModal(id=null){
+  const k = id ? state.koi.find(x=>x.id===id) : null;
+  openModal({
+    title: k ? "Koi bearbeiten" : "Koi hinzufügen",
+    bodyHTML: `
+      <div class="field"><div class="label">Name</div><input id="kName" class="input" value="${escapeHtml(k?.name||"")}" /></div>
+      <div class="grid2">
+        <div class="field"><div class="label">Länge (cm)</div><input id="kLen" class="input" type="number" step="1" value="${escapeHtml(k?.length_cm ?? "")}" /></div>
+        <div class="field"><div class="label">Gewicht (g) (optional)</div><input id="kW" class="input" type="number" step="1" value="${escapeHtml(k?.weight_g ?? "")}" /></div>
+      </div>
+      <div class="field">
+        <div class="label">Teich (optional)</div>
+        <select id="kPond" class="input">
+          <option value="">—</option>
+          ${state.ponds.map(p=>`<option value="${p.id}" ${k?.pondId===p.id?"selected":""}>${escapeHtml(p.name||"Teich")}</option>`).join("")}
+        </select>
+      </div>
+    `,
+    footHTML: `
+      <button class="btn" id="mCancel">Abbrechen</button>
+      <button class="btn primary" id="mSave">Speichern</button>
+    `,
+    onMount(){
+      $("#mCancel").onclick = closeModal;
+      $("#mSave").onclick = async ()=>{
+        const obj = {
+          id: k?.id || uid(),
+          name: $("#kName").value.trim() || "Koi",
+          length_cm: $("#kLen").value ? Number($("#kLen").value) : null,
+          weight_g: $("#kW").value ? Number($("#kW").value) : null,
+          pondId: $("#kPond").value || null,
+        };
+        await put(state.db, "koi", obj);
+        await loadAll();
+        closeModal();
+        toast("Gespeichert");
+        render();
+      };
+    }
+  });
+}
+
+async function deleteKoi(id){
+  if(!id) return;
+  if(!confirm("Koi wirklich löschen?")) return;
+  await del(state.db, "koi", id);
+  await loadAll();
+  toast("Gelöscht");
+  render();
+}
+
+function openLogModal(){
+  openModal({
+    title: "Fütterung loggen",
+    bodyHTML: `
+      <div class="grid2">
+        <div class="field">
+          <div class="label">Menge (g)</div>
+          <input id="lAmt" class="input" type="number" step="1" value="${fmt(recommendedFeedGPerDay(state.ponds[0]?.temp_c ?? 18, state.settings.defaultGoal),0)}"/>
+        </div>
+        <div class="field">
+          <div class="label">Teich</div>
+          <select id="lPond" class="input">
+            <option value="">—</option>
+            ${state.ponds.map(p=>`<option value="${p.id}">${escapeHtml(p.name||"Teich")}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <div class="label">Futter</div>
+        <select id="lFood" class="input">
+          ${state.foods.slice().sort((a,b)=>foodLabel(a).localeCompare(foodLabel(b))).map(f=>`<option value="${escapeHtml(f.name)}">${escapeHtml(foodLabel(f))}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field">
+        <div class="label">Notiz (optional)</div>
+        <input id="lNote" class="input" placeholder="z.B. aufgeteilt auf 3 Portionen" />
+      </div>
+    `,
+    footHTML: `
+      <button class="btn" id="mCancel">Abbrechen</button>
+      <button class="btn primary" id="mSave">Speichern</button>
+    `,
+    onMount(){
+      $("#mCancel").onclick = closeModal;
+      $("#mSave").onclick = async ()=>{
+        const obj = {
+          id: uid(),
+          at: new Date().toISOString(),
+          amount_g: Number($("#lAmt").value || 0),
+          pondId: $("#lPond").value || null,
+          food: $("#lFood").value || state.settings.defaultFood,
+          note: $("#lNote").value.trim() || "",
+        };
+        await put(state.db, "logs", obj);
+        await loadAll();
+        closeModal();
+        toast("Geloggt");
+        render();
+      };
+    }
+  });
+}
+
+async function deleteLog(id){
+  if(!id) return;
+  if(!confirm("Eintrag löschen?")) return;
+  await del(state.db, "logs", id);
+  await loadAll();
+  toast("Gelöscht");
+  render();
+}
+
+function openSettingsModal(){
+  openModal({
+    title: "Einstellungen",
+    bodyHTML: `
+      <div class="grid2">
+        <div class="field">
+          <div class="label">Gewichtsbasis</div>
+          <select id="sMode" class="input">
+            <option value="estimate" ${state.settings.weightMode==="estimate"?"selected":""}>Schätzen (Länge)</option>
+            <option value="manual" ${state.settings.weightMode==="manual"?"selected":""}>Manuell (Gewicht)</option>
+          </select>
+        </div>
+        <div class="field">
+          <div class="label">Faktor (L³ → g)</div>
+          <input id="sFactor" class="input" type="number" step="0.001" value="${escapeHtml(state.settings.weightFactor)}"/>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <div class="label">Standard‑Ziel</div>
+          <select id="sGoal" class="input">
+            ${GOALS.map(g=>`<option value="${g}" ${g===state.settings.defaultGoal?"selected":""}>${escapeHtml(g)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <div class="label">Standard‑Futter</div>
+          <input id="sFood" class="input" value="${escapeHtml(state.settings.defaultFood||"")}" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px; flex-wrap:wrap">
+        <button class="btn" data-act="manageFoods" id="btnFoods">Futtersorten verwalten</button>
+        <button class="btn" data-act="dataTools" id="btnData">Export/Import</button>
+      </div>
+    `,
+    footHTML: `
+      <button class="btn" id="mCancel">Abbrechen</button>
+      <button class="btn primary" id="mSave">Speichern</button>
+    `,
+    onMount(){
+      $("#mCancel").onclick = closeModal;
+      $("#mSave").onclick = async ()=>{
+        state.settings.weightMode = $("#sMode").value;
+        state.settings.weightFactor = clamp(Number($("#sFactor").value || 0.012), 0.001, 0.05);
+        state.settings.defaultGoal = $("#sGoal").value || "Erhalt";
+        state.settings.defaultFood = $("#sFood").value.trim() || "Nutramare Koi360 Swim";
         await saveSettings();
         closeModal();
         toast("Gespeichert");
-render();
-      });
+        render();
+      };
+      $("#btnFoods").onclick = ()=> openFoodManager();
+      $("#btnData").onclick = ()=> openDataTools();
+    }
+  });
+}
 
-      // allow opening managers from settings modal
-      $$('[data-act="manageFoods"]').forEach(b=>b.addEventListener("click", openFoodsManager));
-      $$('[data-act="manageReminders"]').forEach(b=>b.addEventListener("click", openRemindersManager));
+function openFoodManager(){
+  const sorted = state.foods.slice().sort((a,b)=>foodLabel(a).localeCompare(foodLabel(b)));
+  openModal({
+    title: "Futtersorten",
+    bodyHTML: `
+      <p>Hier kannst du eigene Futtersorten hinzufügen. (Hinweis: „Allround/Color/Wheatgerm/Growth“ Platzhalter wurden entfernt.)</p>
+      <div class="list">
+        ${sorted.map(f=>`
+          <div class="item">
+            <div>
+              <div class="item__title">${escapeHtml(foodLabel(f))}</div>
+              <div class="item__meta">Temp: ${fmt(f.temp_min_c??"—",0)}–${fmt(f.temp_max_c??"—",0)} °C • Tags: ${(f.tags||[]).map(escapeHtml).join(", ")}</div>
+            </div>
+            <div class="row">
+              <button class="btn small danger" data-act="delFood" data-id="${f.id}">Löschen</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+      <hr class="sep"/>
+      <h3>Neu hinzufügen</h3>
+      <div class="field"><div class="label">Name</div><input id="fName" class="input" placeholder="z.B. Nutramare Koi360 Swim"/></div>
+      <div class="field"><div class="label">Brand (optional)</div><input id="fBrand" class="input" placeholder="Nutramare"/></div>
+      <div class="grid2">
+        <div class="field"><div class="label">Temp min</div><input id="fMin" class="input" type="number" step="1" value="12"/></div>
+        <div class="field"><div class="label">Temp max</div><input id="fMax" class="input" type="number" step="1" value="30"/></div>
+      </div>
+      <div class="field"><div class="label">Tags (kommagetrennt)</div><input id="fTags" class="input" placeholder="Erhalt, Wachstum"/></div>
+      <div class="field"><div class="label">URL (optional)</div><input id="fUrl" class="input" placeholder="https://..."/></div>
+    `,
+    footHTML: `
+      <button class="btn" id="mCancel">Schließen</button>
+      <button class="btn primary" id="mAdd">Hinzufügen</button>
+    `,
+    onMount(){
+      $("#mCancel").onclick = closeModal;
+      $("#mAdd").onclick = async ()=>{
+        const name = $("#fName").value.trim();
+        if(!name) return toast("Bitte Name eingeben");
+        const obj = {
+          id: uid(),
+          name,
+          brand: $("#fBrand").value.trim(),
+          temp_min_c: Number($("#fMin").value),
+          temp_max_c: Number($("#fMax").value),
+          tags: $("#fTags").value.split(",").map(s=>s.trim()).filter(Boolean),
+          url: $("#fUrl").value.trim(),
+        };
+        await put(state.db, "foods", obj);
+        await loadAll();
+        closeModal();
+        toast("Futter hinzugefügt");
+        render();
+      };
+
+      $$("[data-act='delFood']").forEach(btn=>{
+        btn.onclick = async ()=>{
+          if(!confirm("Futtersorte löschen?")) return;
+          await del(state.db,"foods", btn.dataset.id);
+          await loadAll();
+          openFoodManager();
+        };
+      });
     }
   });
 }
 
 function openDataTools(){
   openModal({
-    title: "Daten – Export / Import",
+    title: "Export / Import",
     bodyHTML: `
-      <p>Alle Daten sind lokal (Offline) gespeichert. Hier kannst du ein Backup erstellen oder Daten importieren.</p>
-      <div class="row">
-        <button class="btn primary" id="doExport">Export (.json)</button>
-        <label class="btn" for="importFile" style="cursor:pointer">Import (.json)</label>
-        <input id="importFile" type="file" accept="application/json" hidden>
+      <p>Du kannst hier alles sichern oder auf ein anderes Gerät übernehmen.</p>
+      <div class="row" style="flex-wrap:wrap">
+        <button class="btn" id="btnExport">Export JSON</button>
+        <label class="btn" style="cursor:pointer">
+          Import JSON
+          <input id="fileImport" type="file" accept="application/json" style="display:none" />
+        </label>
+        <button class="btn danger" id="btnReset">Alles zurücksetzen</button>
       </div>
-      <hr class="sep"/>
-      <div class="item">
-        <div class="item__title">Alles löschen</div>
-        <div class="item__meta">Setzt Teiche, Koi und Logbuch zurück.</div>
-        <button class="btn danger" id="doWipe">Zurücksetzen</button>
-      </div>
+      <pre class="code" id="exportBox" style="display:none; margin-top:10px; max-height:260px; overflow:auto;"></pre>
     `,
-    footHTML: `<button class="btn primary" id="dtClose">Fertig</button>`,
+    footHTML: `<button class="btn" id="mClose">Schließen</button>`,
     onMount(){
-      $("#dtClose").addEventListener("click", closeModal);
-
-      $("#doExport").addEventListener("click", async ()=>{
-        const data = await storage.exportAll(state.db);
-        const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = `kodawari-koi-backup-${new Date().toISOString().slice(0,10)}.json`;
-        a.click();
-        setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
-        toast("Export erstellt");
-      });
-
-      $("#importFile").addEventListener("change", async (e)=>{
-        const file = e.target.files?.[0];
-        if(!file) return;
-        const text = await file.text();
-        const data = JSON.parse(text);
-        if(!confirm("Import überschreibt deine aktuellen Daten. Fortfahren?")) return;
-        await storage.importAll(state.db, data);
+      $("#mClose").onclick = closeModal;
+      $("#btnExport").onclick = async ()=>{
+        const data = await exportAll(state.db);
+        const txt = JSON.stringify(data, null, 2);
+        const box = $("#exportBox");
+        box.style.display = "block";
+        box.textContent = txt;
+        try{
+          await navigator.clipboard.writeText(txt);
+          toast("Export in Zwischenablage kopiert");
+        }catch{
+          toast("Export angezeigt (Kopieren manuell)");
+        }
+      };
+      $("#fileImport").onchange = async (e)=>{
+        const f = e.target.files?.[0];
+        if(!f) return;
+        const txt = await f.text();
+        const data = JSON.parse(txt);
+        await importAll(state.db, data);
+        await loadAll();
         await loadSettings();
-        await loadAll();
-        toast("Import fertig");
-render();
         closeModal();
-      });
-
-      $("#doWipe").addEventListener("click", async ()=>{
+        toast("Import fertig");
+        render();
+      };
+      $("#btnReset").onclick = async ()=>{
         if(!confirm("Wirklich ALLES löschen?")) return;
-        // wipe stores by importing empty sets
-        await storage.importAll(state.db, {ponds:[], koi:[], logs:[], settings: state.settings});
+        // easiest reset: re-init db by clearing stores via importAll(empty)
+        await importAll(state.db, { ponds:[], koi:[], logs:[], foods:[], koiPhotos:[], waterLogs:[], reminders:[], settings: null });
         await loadAll();
+        state.settings = { weightMode:"estimate", weightFactor:0.012, defaultGoal:"Erhalt", defaultFood:"Nutramare Koi360 Swim" };
+        await saveSettings();
+        await ensureDefaults();
+        await loadAll();
+        closeModal();
         toast("Zurückgesetzt");
         render();
-        closeModal();
-      });
+      };
     }
   });
 }
 
-/* Install prompt */
-let deferredPrompt = null;
-window.addEventListener("beforeinstallprompt", (e)=>{
-  e.preventDefault();
-  deferredPrompt = e;
-  $("#btnInstall").style.display = "inline-flex";
-});
-$("#btnInstall").addEventListener("click", async ()=>{
-  if(deferredPrompt){
-    deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
-    deferredPrompt = null;
-    toast("Install‑Dialog geöffnet");
-  }else{
-    // iOS fallback
-    openModal({
-      title:"Installieren (iPhone)",
-      bodyHTML:`<p>Auf iPhone: Safari → Teilen → <b>Zum Home‑Bildschirm</b>.</p>`,
-      footHTML:`<button class="btn primary" id="ok">Ok</button>`,
-      onMount(){ $("#ok").addEventListener("click", closeModal); }
-    });
-  }
-});
-
-/* Service Worker */
+/* ---------- SW ---------- */
 async function registerSW(){
   if("serviceWorker" in navigator){
-    try{
-      await navigator.serviceWorker.register("./sw.js");
-    }catch(err){
-      console.warn("SW failed", err);
-    }
+    try{ await navigator.serviceWorker.register("./sw.js"); }
+    catch(err){ console.warn("SW failed", err); }
   }
 }
 
+/* ---------- Init ---------- */
 async function init(){
-  state.db = await storage.open();
+  state.db = await openDB();
   await loadSettings();
   await loadAll();
   await ensureDefaults();
   await loadAll();
-render();
+
+  // Route from hash
+  const h = (location.hash||"").replace("#","");
+  if(h && ["dash","ponds","koi","calc","log","stats"].includes(h)) state.route = h;
+
+  render();
   await registerSW();
 
-  startReminderLoop();
-
-  // Hide install button until available (except iOS – still show on wide screens)
-  $("#btnInstall").style.display = "none";
-  // iOS detection: show "Install" tip as button on iOS
-  const ua = navigator.userAgent || "";
-  const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
-  if(isIOS) $("#btnInstall").style.display = "inline-flex";
+  // Install prompt
+  const btnInstall = $("#btnInstall");
+  if(btnInstall) btnInstall.style.display = "none";
+  window.addEventListener("beforeinstallprompt", (e)=>{
+    e.preventDefault();
+    window.__deferredInstall = e;
+    if(btnInstall) btnInstall.style.display = "inline-flex";
+  });
+  if(btnInstall){
+    btnInstall.onclick = async ()=>{
+      const d = window.__deferredInstall;
+      if(!d) return toast("Installation nicht verfügbar");
+      d.prompt();
+      await d.userChoice;
+      window.__deferredInstall = null;
+      btnInstall.style.display = "none";
+    };
+  }
 }
 
-init();
+init().catch(err=>{
+  console.error(err);
+  const v = $("#view");
+  if(v) v.innerHTML = `<section class="card"><h2>Fehler</h2><p>Die App konnte nicht starten.</p><pre class="code">${escapeHtml(String(err && err.stack || err))}</pre></section>`;
+});
