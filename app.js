@@ -49,17 +49,169 @@ function goalFactor(goal, tempC){
 }
 
 const PRESET_FOODS = [
-  // Nutramare (Auszug)
-  { id: "nutramare_koi360_basic_swim", brand:"Nutramare", name:"Koi360 Basic Swim", protein: 36.5, fat: 9.0, fiber: 1.29, ash: 10.30, temp_min_c: 12, temp_max_c: 28, tags:["Erhalt","Wachstum"] },
-  { id: "nutramare_koi360_sensitiv_swim", brand:"Nutramare", name:"Koi360 Sensitiv Swim", protein: 31.5, fat: 6.0, fiber: 1.55, ash: 8.90, temp_min_c: 10, temp_max_c: 26, tags:["Schonfütterung","Erhalt"] },
-  { id: "nutramare_koi360_swim", brand:"Nutramare", name:"Koi360 Swim", protein: 40.0, fat: 12.5, fiber: 1.50, ash: 11.34, temp_min_c: 14, temp_max_c: 30, tags:["Wachstum","Konditionierung"] },
-  { id: "nutramare_koi360_jumbo_swim", brand:"Nutramare", name:"Koi360 Jumbo Swim", protein: 40.0, fat: 12.5, fiber: 1.30, ash: 11.00, temp_min_c: 14, temp_max_c: 30, tags:["Wachstum","Konditionierung"] },
+  // Nutramare (Kodawari Koi Shop)
+  {
+    id: "nutramare_koibasic",
+    name: "Nutramare KoiBasic Swim",
+    brand: "Nutramare",
+    category: "Basis / Allround",
+    protein: 33.0,
+    fat: 6.0,
+    fiber: 3.0,
+    ash: 8.5,
+    phosphorus: 1.0,
+    temp_min_c: 12,
+    temp_max_c: 30,
+    tags: ["Allround", "Erhalt", "Kosten", "Basis"],
+    url: "https://www.kodawari-koi.de/product-page/nutramare-koibasic",
+    notes: "Solides Basisfutter (ab ca. 12°C). Preis/Leistung, stabile Pellets, gute Verdaulichkeit."
+  },
+  {
+    id: "nutramare_koi360_swim",
+    name: "Nutramare Koi360 Swim",
+    brand: "Nutramare",
+    category: "Allround / Ganzjahr (warm)",
+    protein: 38.0,
+    fat: 8.0,
+    fiber: 2.5,
+    ash: 9.5,
+    phosphorus: 1.2,
+    temp_min_c: 12,
+    temp_max_c: 30,
+    tags: ["Allround", "Erhalt", "Vitalität", "Wasserqualität"],
+    url: "https://www.kodawari-koi.de/product-page/nutramare-koi360-swim",
+    notes: "360°-Versorgung, schwimmend, sehr gute Futterkontrolle (ab ca. 12°C)."
+  },
+  {
+    id: "nutramare_koi360_sensitive",
+    name: "Nutramare Koi360 Sensitive",
+    brand: "Nutramare",
+    category: "Schonkost / Übergang",
+    protein: 35.0,
+    fat: 7.0,
+    fiber: 3.2,
+    ash: 8.5,
+    phosphorus: 1.0,
+    temp_min_c: 8,
+    temp_max_c: 28,
+    tags: ["Schonfütterung", "Erhalt", "Übergang", "Stabilisierung"],
+    url: "https://www.kodawari-koi.de/product-page/nutramare-koi360-sensitive",
+    notes: "Für sensible Koi, nach Behandlungen oder in Übergangsphasen – entlastet Verdauung & System."
+  },
+  {
+    id: "nutramare_koi360_tosai",
+    name: "Nutramare Koi360 Tosai Swim",
+    brand: "Nutramare",
+    category: "Aufzucht / Wachstum (Tosai)",
+    protein: 45.0,
+    fat: 10.0,
+    fiber: 1.5,
+    ash: 9.5,
+    phosphorus: 1.2,
+    temp_min_c: 15,
+    temp_max_c: 30,
+    tags: ["Wachstum", "Aufzucht"],
+    url: "https://www.kodawari-koi.de/product-page/nutramare-koi360-tosai-swim",
+    notes: "Sehr proteinreich für Tosai-Aufzucht (ab ca. 15°C) – nur in kleinen Portionen, mehrfach täglich."
+  },
 
-  // Takazumi (Auszug)
-  { id: "takazumi_high_growth", brand:"Takazumi", name:"High Growth", protein: 45.0, fat: 12.0, fiber: 2.3, ash: 7.0, temp_min_c: 14, temp_max_c: 30, tags:["Wachstum","Konditionierung"] },
-  { id: "takazumi_gold_plus", brand:"Takazumi", name:"Gold Plus", protein: 35.0, fat: 4.0, fiber: 3.0, ash: 6.0, temp_min_c: 10, temp_max_c: 26, tags:["Erhalt","Farbaufbau"] },
-  { id: "takazumi_mix", brand:"Takazumi", name:"Mix", protein: 40.0, fat: 9.5, fiber: 2.4, ash: 6.5, temp_min_c: 10, temp_max_c: 30, tags:["Wachstum","Farbaufbau"] },
-  { id: "takazumi_easy", brand:"Takazumi", name:"Easy (auch Winter)" , protein: 33.0, fat: 6.0, fiber: 4.2, ash: 8.3, temp_min_c: 8, temp_max_c: 18, tags:["Schonfütterung","Frühjahr/Herbst","Winter"] },
+  // Takazumi (Kodawari Koi Shop)
+  {
+    id: "takazumi_friend",
+    name: "Takazumi Friend",
+    brand: "Takazumi",
+    category: "Basis / Alltag",
+    protein: 33.0,
+    fat: 3.0,
+    fiber: 2.6,
+    ash: 4.4,
+    phosphorus: 0.7,
+    temp_min_c: 10,
+    temp_max_c: 30,
+    tags: ["Allround", "Erhalt", "Kosten", "Basis"],
+    url: "https://www.kodawari-koi.de/product-page/takazumi-friend-10kg",
+    notes: "Alltagsfutter für größere Bestände – gut kombinierbar mit Gold Plus oder Vital."
+  },
+  {
+    id: "takazumi_easy_mix",
+    name: "Takazumi Easy Mix (sinkend & schwimmend)",
+    brand: "Takazumi",
+    category: "Mix / Alltag",
+    protein: 33.0,
+    fat: 6.0,
+    fiber: 4.2,
+    ash: 8.3,
+    phosphorus: 1.1,
+    temp_min_c: 10,
+    temp_max_c: 30,
+    tags: ["Allround", "Erhalt", "Basis", "Futterkontrolle"],
+    url: "https://www.kodawari-koi.de/product-page/takazumi-easy-sinkend",
+    notes: "Mix aus sinkend & schwimmend – gut bei gemischter Altersstruktur / scheuen Fischen."
+  },
+  {
+    id: "takazumi_mix",
+    name: "Takazumi Mix",
+    brand: "Takazumi",
+    category: "Allround / Saison",
+    protein: 40.0,
+    fat: 9.5,
+    fiber: 2.4,
+    ash: 6.5,
+    phosphorus: 1.2,
+    temp_min_c: 10,
+    temp_max_c: 30,
+    tags: ["Allround", "Erhalt", "Vitalität"],
+    url: "https://www.kodawari-koi.de/product-page/takazumi-mix",
+    notes: "Ausgewogener Mix für aktive Saison (ab ca. 10°C)."
+  },
+  {
+    id: "takazumi_gold_plus",
+    name: "Takazumi Gold Plus",
+    brand: "Takazumi",
+    category: "Farbe / Ganzjahr (kühl möglich)",
+    protein: 35.0,
+    fat: 7.0,
+    fiber: 2.5,
+    ash: 9.0,
+    phosphorus: 0.9,
+    temp_min_c: 4,
+    temp_max_c: 30,
+    tags: ["Farbaufbau", "Erhalt", "Übergang"],
+    url: "https://www.kodawari-koi.de/product-page/takazumi-gold-plus",
+    notes: "Farbbrillanz (Astaxanthin) + sehr hohe Verdaulichkeit – kann bereits ab ca. 4°C genutzt werden."
+  },
+  {
+    id: "takazumi_high_growth",
+    name: "Takazumi High Growth",
+    brand: "Takazumi",
+    category: "Wachstum / Saison",
+    protein: 45.0,
+    fat: 12.0,
+    fiber: 2.3,
+    ash: 7.0,
+    phosphorus: 1.4,
+    temp_min_c: 15,
+    temp_max_c: 30,
+    tags: ["Wachstum"],
+    url: "https://www.kodawari-koi.de/product-page/takazumi-high-groth",
+    notes: "Maximales Wachstum – empfohlen ab ca. 15°C (Hochsaison)."
+  },
+  {
+    id: "takazumi_vital",
+    name: "Takazumi Vital",
+    brand: "Takazumi",
+    category: "Immun / Winter / Kur",
+    protein: 35.0,
+    fat: 7.0,
+    fiber: 2.5,
+    ash: 9.0,
+    phosphorus: 0.9,
+    temp_min_c: 4,
+    temp_max_c: 20,
+    tags: ["Winter", "Frühjahr/Herbst", "Schonfütterung", "Übergang"],
+    url: "https://www.kodawari-koi.de/product-page/takazumi-vital",
+    notes: "Für Immunkur, Stressphasen und kalte Jahreszeit (ab ca. 4°C)."
+  }
 ];
 
 async function addMissingFoods(presets){
@@ -360,7 +512,7 @@ function viewDash(){
           <button class="btn primary" data-act="quickLog">+ Fütterung loggen</button>
           <button class="btn" data-act="addPond">+ Teich</button>
           <button class="btn" data-act="addKoi">+ Koi</button>
-          <a class="btn" href="https://www.kodawari-koi.de/" target="_blank" rel="noopener">🛒 Futter nachbestellen</a>
+          ${recFood && recFood.url ? `<a class="btn" href="${recFood.url}" target="_blank" rel="noopener">🛒 Empfohlenes Futter bestellen</a>` : `<a class="btn" href="https://www.kodawari-koi.de/category/koi-futter" target="_blank" rel="noopener">🛒 Futter nachbestellen</a>`}
         </div>
       </section>
 
@@ -521,6 +673,7 @@ function viewCalc(){
           <div class="item__meta" id="calcOut">—</div>
         </div>
         <button class="btn primary" data-act="calcNow">Berechnen</button>
+        <a class="btn primary" id="buyRecommended" href="#" target="_blank" rel="noopener" style="margin-left:8px; display:none">Empfohlenes Futter jetzt bestellen</a>
       </div>
 
       <div class="row" style="margin-top:10px">
@@ -725,6 +878,7 @@ function calcNow(silent=false){
   const t = Number($("#calcTemp")?.value ?? 18);
   const goal = normalizeGoal($("#calcGoal")?.value || state.settings.defaultGoal || "Erhalt");
   const rec = recommendedFeedGPerDay(t, goal);
+  let rf = null;
   const out = $("#calcOut");
   if(out){
     const pct = recPercentByTemp(t)*100;
@@ -734,7 +888,7 @@ function calcNow(silent=false){
   // Food hint
   const hint = $("#calcFoodHint");
   if(hint){
-    const rf = recommendFoodByTempAndGoal(t, goal);
+    rf = recommendFoodByTempAndGoal(t, goal);
     hint.innerHTML = rf ? `${escapeHtml(foodLabel(rf))} <span class="badge">${fmt(Number(rf.protein)||0,0)}% P</span> <span class="badge">${fmt(Number(rf.fat)||0,0)}% F</span>` : "—";
     const alt = recommendFoodsByTempAndGoal(t, goal, 3).filter(x=>!rf || x.id!==rf.id);
     const hint2 = $("#calcFoodHint2");
@@ -742,6 +896,19 @@ function calcNow(silent=false){
       hint2.innerHTML = alt.length ? (`Alternativen: ` + alt.map(a=>`${escapeHtml(foodLabel(a))} (${fmt(Number(a.protein)||0,0)}%P/${fmt(Number(a.fat)||0,0)}%F)`).join(' • ')) : '';
     }
   }
+
+  // Buy button (dynamic shop link)
+  const buy = $("#buyRecommended");
+  if(buy){
+    if(rf && rf.url){
+      buy.href = rf.url;
+      buy.style.display = "inline-flex";
+    } else {
+      buy.href = "#";
+      buy.style.display = "none";
+    }
+  }
+
 
   if(!silent) toast("Berechnet");
 }
@@ -755,8 +922,8 @@ function splitN(n){
 
 function logFromCalc(){
   const t = Number($("#calcTemp")?.value ?? 18);
-  const amount = Math.round(recommendedFeedGPerDay(t, goal));
   const goal = $("#calcGoal")?.value || state.settings.defaultGoal || "Erhalt";
+  const amount = Math.round(recommendedFeedGPerDay(t, goal));
   const foodSel = $("#calcFood")?.value;
   const custom = $("#calcFoodCustom")?.value?.trim();
   const foodId = (foodSel && foodSel !== "__custom") ? foodSel : "";
@@ -1137,6 +1304,7 @@ function openFoodsManager(){
               <span class="badge">${f.id.slice(0,6)}</span>
             </div>
             <div class="item__actions">
+              ${f.url ? `<a class="btn" href="${f.url}" target="_blank" rel="noopener">🛒 Shop</a>` : ``}
               <button class="btn" data-act="editFood" data-id="${f.id}">Bearbeiten</button>
               <button class="btn danger" data-act="delFood" data-id="${f.id}">Löschen</button>
             </div>
@@ -1159,7 +1327,7 @@ function openFoodsManager(){
 }
 
 function modalFood(existing=null){
-  const f = existing || { id: uid(), name:"", protein:"", fat:"", price_eur_per_kg:"", stock_g:"", temp_min_c:"", temp_max_c:"", tags:["Erhalt"] };
+  const f = existing || { id: uid(), name:"", protein:"", fat:"", price_eur_per_kg:"", stock_g:"", temp_min_c:"", temp_max_c:"", url:"", notes:"", tags:["Erhalt"] };
   openModal({
     title: existing ? "Futtersorte bearbeiten" : "Futtersorte hinzufügen",
     bodyHTML: `
@@ -1195,6 +1363,10 @@ function modalFood(existing=null){
           <input class="input" id="fTmax" type="number" step="1" value="${escapeAttr(f.temp_max_c)}">
         </div>
       </div>
+      <div class="label">Shop‑Link (optional)</div>
+      <input class="input" id="fUrl" value="${escapeAttr(f.url||"")}" placeholder="https://www.kodawari-koi.de/product-page/...">
+      <div class="label">Notiz (optional)</div>
+      <textarea class="input" id="fNotes" placeholder="Kurzbeschreibung / Einsatzbereich">${escapeHtml(f.notes||"")}</textarea>
       <div class="label">Ziele (für Empfehlungen)</div>
       <div class="row" style="flex-wrap:wrap; gap:8px">
         ${GOALS.map(g=>{

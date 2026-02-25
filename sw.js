@@ -1,5 +1,5 @@
 /* Kodawari Koi PWA Service Worker */
-const CACHE = "kodawari-koi-v9";
+const CACHE = "kodawari-koi-v10";
 const ASSETS = [
   "./",
   "./index.html",
