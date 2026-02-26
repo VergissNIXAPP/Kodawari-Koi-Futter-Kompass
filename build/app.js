@@ -22,14 +22,16 @@ const GOAL_RANGES = {
 
 const PRESET_FOODS = [
   // Nutramare (Kodawari Koi Shop)
-  { id:"nutramare_koibasic", name:"Nutramare KoiBasic Swim", brand:"Nutramare", temp_min_c:12, temp_max_c:30, tags:["Erhalt"], url:"https://www.kodawari-koi.de/product-page/nutramare-koibasic" },
-  { id:"nutramare_koi360_swim", name:"Nutramare Koi360 Swim", brand:"Nutramare", temp_min_c:12, temp_max_c:30, tags:["Erhalt","Konditionierung"], url:"https://www.kodawari-koi.de/product-page/nutramare-koi360-swim" },
+  { id:"nutramare_koibasic", name:"Nutramare Koi Basic", brand:"Nutramare", temp_min_c:12, temp_max_c:30, tags:["Erhalt"], url:"https://www.kodawari-koi.de/product-page/nutramare-koibasic" },
+  { id:"nutramare_koi360_swim", name:"Nutramare Koi360", brand:"Nutramare", temp_min_c:12, temp_max_c:30, tags:["Erhalt","Konditionierung"], url:"https://www.kodawari-koi.de/product-page/nutramare-koi360-swim" },
+  { id:"nutramare_koi360_sensitive", name:"Nutramare Koi360 Sensitive", brand:"Nutramare", temp_min_c:6, temp_max_c:10, tags:["Schonfütterung","Frühjahr/Herbst","Winter"], url:"https://www.kodawari-koi.de/product-page/nutramare-koi360-sensitive" },
   { id:"nutramare_koi360_goldplus", name:"Nutramare Koi360 Gold Plus", brand:"Nutramare", temp_min_c:16, temp_max_c:30, tags:["Farbaufbau"], url:"https://www.kodawari-koi.de/product-page/nutramare-koi360-gold-plus-swim" },
   { id:"nutramare_koi360_tosai", name:"Nutramare Koi360 Tosai Swim", brand:"Nutramare", temp_min_c:15, temp_max_c:30, tags:["Wachstum"], url:"https://www.kodawari-koi.de/product-page/nutramare-koi360-tosai-swim" },
   { id:"nutramare_wheatgerm", name:"Nutramare Koi360 Wheat Germ Swim", brand:"Nutramare", temp_min_c:8, temp_max_c:18, tags:["Schonfütterung","Frühjahr/Herbst"], url:"https://www.kodawari-koi.de/product-page/nutramare-koi360-wheat-germ-swim" },
 
   // Takazumi (Kodawari Koi Shop)
-  { id:"takazumi_easy", name:"Takazumi Easy", brand:"Takazumi", temp_min_c:10, temp_max_c:30, tags:["Erhalt"], url:"https://www.kodawari-koi.de/product-page/takazumi-easy" },
+  { id:"takazumi_easy", name:"Takazumi Easy", brand:"Takazumi", temp_min_c:6, temp_max_c:10, tags:["Schonfütterung","Frühjahr/Herbst","Winter","Erhalt"], url:"https://www.kodawari-koi.de/product-page/takazumi-easy" },
+  { id:"takazumi_mix", name:"Takazumi Mix", brand:"Takazumi", temp_min_c:10, temp_max_c:30, tags:["Erhalt","Farbaufbau"], url:"https://www.kodawari-koi.de/product-page/takazumi-mix" },
   { id:"takazumi_high_growth", name:"Takazumi High Growth", brand:"Takazumi", temp_min_c:18, temp_max_c:30, tags:["Wachstum","Konditionierung"], url:"https://www.kodawari-koi.de/product-page/takazumi-high-growth" },
   { id:"takazumi_gold_plus", name:"Takazumi Gold Plus", brand:"Takazumi", temp_min_c:16, temp_max_c:30, tags:["Farbaufbau"], url:"https://www.kodawari-koi.de/product-page/takazumi-gold-plus" },
 ];
@@ -45,7 +47,7 @@ const state = {
     weightMode: "estimate",      // estimate | manual
     weightFactor: 0.012,         // used for L^3 estimate
     defaultGoal: "Erhalt",
-    defaultFood: "Nutramare Koi360 Swim",
+    defaultFood: "Nutramare Koi360",
   },
 };
 
@@ -124,42 +126,62 @@ function foodLabel(f){
   return `${brand}${f.name}`;
 }
 
-function recommendFoodsByTempAndGoal(tempC, goal, limit=3){
+// Futterempfehlung: NUR nach deiner festen Temperatur-Tabelle.
+function _foodById(id){
+  return (state.foods||[]).find(f=>f.id===id) || null;
+}
+
+function _tableRecommendations(tempC, goal){
   const t = Number(tempC);
-  const g = (goal||"").trim();
-  const foods = Array.isArray(state.foods) ? state.foods : [];
-  if(!foods.length) return [];
-  const byTemp = foods.filter(f=>{
-    const min = Number(f.temp_min_c);
-    const max = Number(f.temp_max_c);
-    const okTemp = (Number.isFinite(min)? t >= min : true) && (Number.isFinite(max)? t <= max : true);
-    return okTemp;
-  });
+  const g = normalizeGoal(goal);
+  if(!Number.isFinite(t)) return [];
+  if(t < 6) return [];
 
-  // STRICT: if goal selected, only foods tagged with that goal
-  let candidates = byTemp;
-  if(g){
-    const strict = byTemp.filter(f=>Array.isArray(f.tags) && f.tags.includes(g));
-    if(strict.length) candidates = strict;
+  const N_SENS = "nutramare_koi360_sensitive";
+  const N_BASIC = "nutramare_koibasic";
+  const N_360 = "nutramare_koi360_swim";
+  const N_TOSAI = "nutramare_koi360_tosai";
+  const T_EASY = "takazumi_easy";
+  const T_MIX = "takazumi_mix";
+  const T_GOLD = "takazumi_gold_plus";
+  const T_GROW = "takazumi_high_growth";
+  const uniq = (ids)=>Array.from(new Set(ids)).map(_foodById).filter(Boolean);
+
+  if(t >= 6 && t < 10){
+    return uniq([N_SENS, T_EASY]);
   }
-
-  // stable sort: prefer goal match, then tighter temp range
-  candidates = candidates.slice().sort((a,b)=>{
-    const at = Array.isArray(a.tags)?a.tags:[];
-    const bt = Array.isArray(b.tags)?b.tags:[];
-    const ag = g && at.includes(g) ? 1 : 0;
-    const bg = g && bt.includes(g) ? 1 : 0;
-    if(bg !== ag) return bg - ag;
-    const ar = (Number(a.temp_max_c)||99) - (Number(a.temp_min_c)||0);
-    const br = (Number(b.temp_max_c)||99) - (Number(b.temp_min_c)||0);
-    return ar - br;
-  });
-
-  return candidates.slice(0, limit);
+  if(t >= 10 && t < 12){
+    if(g === "Wachstum" || g === "Farbaufbau") return uniq([T_MIX, N_BASIC]);
+    return uniq([N_BASIC, T_MIX]);
+  }
+  if(t >= 12 && t < 15){
+    if(g === "Farbaufbau") return uniq([T_GOLD, N_TOSAI]);
+    return uniq([N_TOSAI, T_GOLD]);
+  }
+  if(t >= 15 && t < 20){
+    if(g === "Wachstum") return uniq([T_GROW, N_360]);
+    if(g === "Farbaufbau") return uniq([N_360, T_MIX]);
+    if(g === "Konditionierung") return uniq([N_360, T_GOLD]);
+    return uniq([N_360, T_GROW]);
+  }
+  if(t >= 20 && t <= 26){
+    if(g === "Wachstum" || g === "Konditionierung") return uniq([T_GROW, N_360]);
+    if(g === "Farbaufbau") return uniq([T_MIX, N_360]);
+    return uniq([N_360, T_MIX]);
+  }
+  if(t > 26){
+    if(g === "Farbaufbau") return uniq([T_GOLD, N_BASIC]);
+    return uniq([N_BASIC, T_GOLD]);
+  }
+  return [];
 }
 
 function recommendFoodByTempAndGoal(tempC, goal){
-  return recommendFoodsByTempAndGoal(tempC, goal, 1)[0] || null;
+  return _tableRecommendations(tempC, goal)[0] || null;
+}
+
+function recommendFoodsByTempAndGoal(tempC, goal, limit=3){
+  return _tableRecommendations(tempC, goal).slice(0, limit);
 }
 
 function toast(msg){
@@ -745,7 +767,7 @@ function openSettingsModal(){
         state.settings.weightMode = $("#sMode").value;
         state.settings.weightFactor = clamp(Number($("#sFactor").value || 0.012), 0.001, 0.05);
         state.settings.defaultGoal = $("#sGoal").value || "Erhalt";
-        state.settings.defaultFood = $("#sFood").value.trim() || "Nutramare Koi360 Swim";
+        state.settings.defaultFood = $("#sFood").value.trim() || "Nutramare Koi360";
         await saveSettings();
         closeModal();
         toast("Gespeichert");
@@ -778,7 +800,7 @@ function openFoodManager(){
       </div>
       <hr class="sep"/>
       <h3>Neu hinzufügen</h3>
-      <div class="field"><div class="label">Name</div><input id="fName" class="input" placeholder="z.B. Nutramare Koi360 Swim"/></div>
+      <div class="field"><div class="label">Name</div><input id="fName" class="input" placeholder="z.B. Nutramare Koi360"/></div>
       <div class="field"><div class="label">Brand (optional)</div><input id="fBrand" class="input" placeholder="Nutramare"/></div>
       <div class="grid2">
         <div class="field"><div class="label">Temp min</div><input id="fMin" class="input" type="number" step="1" value="12"/></div>
@@ -872,7 +894,7 @@ function openDataTools(){
         // easiest reset: re-init db by clearing stores via importAll(empty)
         await importAll(state.db, { ponds:[], koi:[], logs:[], foods:[], koiPhotos:[], waterLogs:[], reminders:[], settings: null });
         await loadAll();
-        state.settings = { weightMode:"estimate", weightFactor:0.012, defaultGoal:"Erhalt", defaultFood:"Nutramare Koi360 Swim" };
+        state.settings = { weightMode:"estimate", weightFactor:0.012, defaultGoal:"Erhalt", defaultFood:"Nutramare Koi360" };
         await saveSettings();
         await ensureDefaults();
         await loadAll();
@@ -887,7 +909,28 @@ function openDataTools(){
 /* ---------- SW ---------- */
 async function registerSW(){
   if("serviceWorker" in navigator){
-    try{ await navigator.serviceWorker.register("./sw.js"); }
+    try{
+      const reg = await navigator.serviceWorker.register("./sw.js");
+
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener("controllerchange", ()=>{
+        if(refreshing) return;
+        refreshing = true;
+        window.location.reload();
+      });
+
+      reg.addEventListener("updatefound", ()=>{
+        const nw = reg.installing;
+        if(!nw) return;
+        nw.addEventListener("statechange", ()=>{
+          if(nw.state === "installed" && navigator.serviceWorker.controller){
+            try{ nw.postMessage({ type: "SKIP_WAITING" }); }catch{}
+          }
+        });
+      });
+
+      try{ await reg.update(); }catch{}
+    }
     catch(err){ console.warn("SW failed", err); }
   }
 }

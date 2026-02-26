@@ -1,5 +1,5 @@
 /* Kodawari Koi PWA Service Worker */
-const CACHE = "kodawari-koi-v20";
+const CACHE = "kodawari-koi-v21";
 const ASSETS = [
   "./",
   "./index.html",
@@ -26,6 +26,12 @@ self.addEventListener("install", (e)=>{
   );
 });
 
+self.addEventListener("message", (e)=>{
+  if(e.data && e.data.type === "SKIP_WAITING"){
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener("activate", (e)=>{
   e.waitUntil(
     caches.keys().then(keys=>Promise.all(keys.map(k=>k===CACHE?null:caches.delete(k)))).then(()=>self.clients.claim())
@@ -49,6 +55,24 @@ self.addEventListener("fetch", (e)=>{
         return fresh;
       }catch{
         const cached = await caches.match("./index.html");
+        return cached || new Response("Offline", {status: 200, headers: {"Content-Type":"text/plain"}});
+      }
+    })());
+    return;
+  }
+
+  // Core files: network-first so GitHub Deploys sichtbar sind, ohne Neuinstallation.
+  const core = ["/app.js", "/app.css", "/db.js", "/manifest.json", "/index.html"];
+  const isCore = core.some(p=>url.pathname.endsWith(p));
+  if(isCore){
+    e.respondWith((async ()=>{
+      try{
+        const fresh = await fetch(req, { cache: "no-store" });
+        const cache = await caches.open(CACHE);
+        cache.put(req, fresh.clone());
+        return fresh;
+      }catch{
+        const cached = await caches.match(req);
         return cached || new Response("Offline", {status: 200, headers: {"Content-Type":"text/plain"}});
       }
     })());

@@ -53,7 +53,7 @@ const PRESET_FOODS = [
   // Nutramare (Kodawari Koi Shop)
   {
     id: "nutramare_koibasic",
-    name: "Nutramare KoiBasic Swim",
+    name: "Nutramare Koi Basic",
     brand: "Nutramare",
     category: "Basis / Allround",
     protein: 33.0,
@@ -69,7 +69,7 @@ const PRESET_FOODS = [
   },
   {
     id: "nutramare_koi360_swim",
-    name: "Nutramare Koi360 Swim",
+    name: "Nutramare Koi360",
     brand: "Nutramare",
     category: "Allround / Ganzjahr (warm)",
     protein: 38.0,
@@ -135,7 +135,7 @@ const PRESET_FOODS = [
   },
   {
     id: "takazumi_easy_mix",
-    name: "Takazumi Easy Mix (sinkend & schwimmend)",
+    name: "Takazumi Easy",
     brand: "Takazumi",
     category: "Mix / Alltag",
     protein: 33.0,
@@ -503,47 +503,91 @@ function recommendedFeedGPerDay(tempC, goal){
   return biomass * pct * gf;
 }
 
-function recommendFoodByTempAndGoal(tempC, goal){
+// Futterempfehlung: NUR nach deiner festen Temperatur-Tabelle.
+// (Temperatur + Fütterungsziel bleiben in der Logik enthalten.)
+function _foodById(id){
+  return (state.foods||[]).find(f=>f.id===id) || null;
+}
+
+function _tableRecommendations(tempC, goal){
   const t = Number(tempC);
-  if(!state.foods || state.foods.length === 0) return null;
-  const g = (goal || "").trim();
-  const candidates = state.foods.filter(f=>{
-    const min = Number(f.temp_min_c);
-    const max = Number(f.temp_max_c);
-    const okTemp = (Number.isFinite(min)? t >= min : true) && (Number.isFinite(max)? t <= max : true);
-    const tags = Array.isArray(f.tags) ? f.tags : [];
-    const okGoal = !g ? true : (tags.includes(g) || tags.includes("Erhalt") || tags.length===0);
-    return okTemp && okGoal;
-  });
-  const pickFrom = candidates.length ? candidates : state.foods;
-  // prefer foods that explicitly match goal
-  pickFrom.sort((a,b)=>{
-    const at = Array.isArray(a.tags)?a.tags:[];
-    const bt = Array.isArray(b.tags)?b.tags:[];
-    const as = at.includes(g)?2:at.includes("Erhalt")?1:0;
-    const bs = bt.includes(g)?2:bt.includes("Erhalt")?1:0;
-    return bs - as;
-  });
-  return pickFrom[0] || null;
+  const g = normalizeGoal(goal);
+  if(!Number.isFinite(t)) return [];
+
+  // Unter 8°C wird ohnehin 0 gefüttert (siehe goalFactor). Hier nur Empfehlung ausgeben,
+  // wenn du überhaupt füttern willst.
+  if(t < 6) return [];
+
+  // IDs aus PRESET_FOODS
+  const N_SENS = "nutramare_koi360_sensitive";
+  const N_BASIC = "nutramare_koibasic";
+  const N_360 = "nutramare_koi360_swim";
+  const N_TOSAI = "nutramare_koi360_tosai";
+  const T_EASY = "takazumi_easy_mix";
+  const T_MIX = "takazumi_mix";
+  const T_GOLD = "takazumi_gold_plus";
+  const T_GROW = "takazumi_high_growth";
+
+  // Helper: sichere Liste ohne Duplikate
+  const uniq = (ids)=>Array.from(new Set(ids)).map(_foodById).filter(Boolean);
+
+  // 6–10°C
+  if(t >= 6 && t < 10){
+    // Schonfütterung / Übergang: eher leicht verdaulich
+    if(g === "Schonfütterung" || g === "Winter" || g === "Frühjahr/Herbst") return uniq([N_SENS, T_EASY]);
+    return uniq([N_SENS, T_EASY]);
+  }
+
+  // 10–12°C
+  if(t >= 10 && t < 12){
+    // Übergang: Basis / All-Season
+    if(g === "Wachstum") return uniq([T_MIX, N_BASIC]);
+    if(g === "Farbaufbau") return uniq([T_MIX, N_BASIC]);
+    return uniq([N_BASIC, T_MIX]);
+  }
+
+  // 12–15°C
+  if(t >= 12 && t < 15){
+    // Konditionierung / Erhalt
+    if(g === "Wachstum") return uniq([N_TOSAI, T_GOLD]);
+    if(g === "Farbaufbau") return uniq([T_GOLD, N_TOSAI]);
+    return uniq([N_TOSAI, T_GOLD]);
+  }
+
+  // 15–20°C
+  if(t >= 15 && t < 20){
+    if(g === "Wachstum") return uniq([T_GROW, N_360]);
+    if(g === "Farbaufbau") return uniq([N_360, T_MIX]);
+    if(g === "Konditionierung") return uniq([N_360, T_GOLD]);
+    return uniq([N_360, T_GROW]);
+  }
+
+  // 20–26°C
+  if(t >= 20 && t <= 26){
+    if(g === "Wachstum") return uniq([T_GROW, N_360]);
+    if(g === "Farbaufbau") return uniq([T_MIX, N_360]);
+    if(g === "Konditionierung") return uniq([T_GROW, N_360]);
+    return uniq([N_360, T_MIX]);
+  }
+
+  // >26°C
+  if(t > 26){
+    // Hitze: weniger, kleine Portionen
+    if(g === "Farbaufbau") return uniq([T_GOLD, N_BASIC]);
+    return uniq([N_BASIC, T_GOLD]);
+  }
+
+  return [];
+}
+
+function recommendFoodByTempAndGoal(tempC, goal){
+  const list = _tableRecommendations(tempC, goal);
+  return list[0] || null;
 }
 
 function recommendFoodsByTempAndGoal(tempC, goal, limit=3){
-  const t = Number(tempC);
-  const g = normalizeGoal(goal);
-  if(!state.foods || state.foods.length===0) return [];
-  const scored = state.foods.map(f=>{
-    const min = Number(f.temp_min_c);
-    const max = Number(f.temp_max_c);
-    const okTemp = (Number.isFinite(min)? t >= min : true) && (Number.isFinite(max)? t <= max : true);
-    const tags = Array.isArray(f.tags) ? f.tags : [];
-    const sGoal = tags.includes(g) ? 3 : (tags.includes("Erhalt") ? 2 : (tags.length?1:0));
-    const sTemp = okTemp ? 3 : 0;
-    const sProt = Number(f.protein)||0;
-    const score = sTemp*10 + sGoal*5 + sProt/20;
-    return { f, score, okTemp, tags };
-  });
-  scored.sort((a,b)=>b.score-a.score);
-  return scored.filter(x=>x.okTemp || scored.filter(y=>y.okTemp).length===0).slice(0, limit).map(x=>x.f);
+  const list = _tableRecommendations(tempC, goal);
+  return list.slice(0, limit);
 }
 
 function nextDueReminder(){
@@ -2183,7 +2227,29 @@ $("#btnInstall").addEventListener("click", async ()=>{
 async function registerSW(){
   if("serviceWorker" in navigator){
     try{
-      await navigator.serviceWorker.register("./sw.js");
+      const reg = await navigator.serviceWorker.register("./sw.js");
+
+      // Wenn ein neuer SW aktiv wird -> Seite neu laden (damit neue Assets sofort greifen)
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener("controllerchange", ()=>{
+        if(refreshing) return;
+        refreshing = true;
+        window.location.reload();
+      });
+
+      // Bei Update: neuen SW sofort aktivieren
+      reg.addEventListener("updatefound", ()=>{
+        const nw = reg.installing;
+        if(!nw) return;
+        nw.addEventListener("statechange", ()=>{
+          if(nw.state === "installed" && navigator.serviceWorker.controller){
+            try{ nw.postMessage({ type: "SKIP_WAITING" }); }catch{}
+          }
+        });
+      });
+
+      // Direkt beim Start nach Updates suchen
+      try{ await reg.update(); }catch{}
     }catch(err){
       console.warn("SW failed", err);
     }
